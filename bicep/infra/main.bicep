@@ -286,6 +286,29 @@ param enableAPICenter bool = true
 @description('Enable Azure Managed Redis (AMR). When true (default), the Redis resource and APIM cache integration are provisioned.')
 param enableManagedRedis bool = true
 
+@description('Azure Monitor diagnostic log settings for inference APIs. Controls frontend/backend request/response headers, body bytes, and LLM-specific log settings.')
+param azureMonitorLogSettings object = {
+  frontend: {
+    request:  { headers: [], body: { bytes: 0 } }
+    response: { headers: [], body: { bytes: 0 } }
+  }
+  backend: {
+    request:  { headers: [], body: { bytes: 0 } }
+    response: { headers: [], body: { bytes: 0 } }
+  }
+  largeLanguageModel: {
+    logs: 'enabled'
+    requests:  { messages: 'all', maxSizeInBytes: 262144 }
+    responses: { messages: 'all', maxSizeInBytes: 262144 }
+  }
+}
+
+@description('Application Insights diagnostic log settings for inference APIs. Controls which headers are captured and body byte limits.')
+param appInsightsLogSettings object = {
+  headers: [ 'Content-type', 'User-agent', 'x-ms-region', 'x-ratelimit-remaining-tokens', 'x-ratelimit-remaining-requests' ]
+  body: { bytes: 0 }
+}
+
 //
 // COMPUTE SKU & SIZE - SKUs and capacity settings for services
 //
@@ -997,6 +1020,8 @@ module apim './modules/apim/apim.bicep' = {
     enableAPICenter: enableAPICenter
     apiCenterServiceName: enableAPICenter ? apiCenter.outputs.name : ''
     apiCenterWorkspaceName: enableAPICenter ? apiCenter.outputs.defaultWorkspaceName : 'default'
+    azureMonitorLogSettings: azureMonitorLogSettings
+    appInsightsLogSettings: appInsightsLogSettings
 
   }
 }

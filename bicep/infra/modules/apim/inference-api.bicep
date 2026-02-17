@@ -60,13 +60,36 @@ param inferenceAPIPath string = 'inference' // Path to the inference API in the 
 @description('Whether to configure the circuit breaker for the inference backend')
 param configureCircuitBreaker bool = false
 
+@description('Azure Monitor diagnostic log settings for the inference API (frontend/backend request/response headers & body bytes, and LLM log settings).')
+param azureMonitorLogSettings object = {
+  frontend: {
+    request:  { headers: [], body: { bytes: 0 } }
+    response: { headers: [], body: { bytes: 0 } }
+  }
+  backend: {
+    request:  { headers: [], body: { bytes: 0 } }
+    response: { headers: [], body: { bytes: 0 } }
+  }
+  largeLanguageModel: {
+    logs: 'enabled'
+    requests:  { messages: 'all', maxSizeInBytes: 262144 }
+    responses: { messages: 'all', maxSizeInBytes: 262144 }
+  }
+}
+
+@description('Application Insights diagnostic log settings for the inference API (headers to capture and body bytes).')
+param appInsightsLogSettings object = {
+  headers: [ 'Content-type', 'User-agent', 'x-ms-region', 'x-ratelimit-remaining-tokens', 'x-ratelimit-remaining-requests' ]
+  body: { bytes: 0 }
+}
+
 // ------------------
 //    VARIABLES
 // ------------------
 
 var logSettings = {
-  headers: [ 'Content-type', 'User-agent', 'x-ms-region', 'x-ratelimit-remaining-tokens' , 'x-ratelimit-remaining-requests' ]
-  body: { bytes: 0 }
+  headers: appInsightsLogSettings.headers
+  body: appInsightsLogSettings.body
 }
 
 // to allow future modifications to the policy XML if needed
@@ -142,41 +165,41 @@ resource apiDiagnostics 'Microsoft.ApiManagement/service/apis/diagnostics@2024-0
     }
     frontend: {
       request: {
-        headers: []
+        headers: azureMonitorLogSettings.frontend.request.headers
         body: {
-          bytes: 0
+          bytes: azureMonitorLogSettings.frontend.request.body.bytes
         }
       }
       response: {
-        headers: []
+        headers: azureMonitorLogSettings.frontend.response.headers
         body: {
-          bytes: 0
+          bytes: azureMonitorLogSettings.frontend.response.body.bytes
         }
       }
     }
     backend: {
       request: {
-        headers: []
+        headers: azureMonitorLogSettings.backend.request.headers
         body: {
-          bytes: 0
+          bytes: azureMonitorLogSettings.backend.request.body.bytes
         }
       }
       response: {
-        headers: []
+        headers: azureMonitorLogSettings.backend.response.headers
         body: {
-          bytes: 0
+          bytes: azureMonitorLogSettings.backend.response.body.bytes
         }
       }
     }
     largeLanguageModel: {
-      logs: 'enabled'
+      logs: azureMonitorLogSettings.largeLanguageModel.logs
       requests: {
-        messages: 'all'
-        maxSizeInBytes: 262144
+        messages: azureMonitorLogSettings.largeLanguageModel.requests.messages
+        maxSizeInBytes: azureMonitorLogSettings.largeLanguageModel.requests.maxSizeInBytes
       }
       responses: {
-        messages: 'all'
-        maxSizeInBytes: 262144
+        messages: azureMonitorLogSettings.largeLanguageModel.responses.messages
+        maxSizeInBytes: azureMonitorLogSettings.largeLanguageModel.responses.maxSizeInBytes
       }
     }
   }

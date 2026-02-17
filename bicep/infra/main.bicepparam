@@ -133,6 +133,36 @@ param enableAPICenter = bool(readEnvironmentVariable('ENABLE_API_CENTER', 'false
 param enableManagedRedis = bool(readEnvironmentVariable('ENABLE_MANAGED_REDIS', 'true'))
 
 // ============================================================================
+// INFERENCE API DIAGNOSTIC LOG SETTINGS
+// ============================================================================
+
+// Azure Monitor diagnostic log settings for inference APIs
+// Controls frontend/backend request/response headers, body bytes, and LLM-specific log settings.
+// Max size in bytes for request/response bodies is 262144 bytes (256 KB).
+param azureMonitorLogSettings = {
+  frontend: {
+    request:  { headers: [], body: { bytes: 0 } }
+    response: { headers: [], body: { bytes: 0 } }
+  }
+  backend: {
+    request:  { headers: [], body: { bytes: 0 } }
+    response: { headers: ['Content-type', 'User-agent', 'x-ms-region', 'x-ratelimit-remaining-tokens', 'x-ratelimit-remaining-requests'], body: { bytes: 0 } }
+  }
+  largeLanguageModel: {
+    logs: 'enabled'
+    requests:  { messages: 'all', maxSizeInBytes: 262144 }
+    responses: { messages: 'all', maxSizeInBytes: 262144 }
+  }
+}
+
+// Application Insights diagnostic log settings for inference APIs
+// Controls which headers are captured and body byte limits (max 8192 bytes).
+param appInsightsLogSettings = {
+  headers: [ 'Content-type', 'User-agent', 'x-ms-region', 'x-ratelimit-remaining-tokens', 'x-ratelimit-remaining-requests' ]
+  body: { bytes: 8192 }
+}
+
+// ============================================================================
 // COMPUTE SKU & SIZE - SKUs and capacity settings for services
 // ============================================================================
 param apimSku = readEnvironmentVariable('APIM_SKU', 'StandardV2')

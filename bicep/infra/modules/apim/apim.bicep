@@ -97,6 +97,29 @@ param redisCacheResourceId string = ''
 @description('APIM cache entity name for the Redis-backed cache')
 param apimRedisCacheName string = 'redis-cache'
 
+@description('Azure Monitor diagnostic log settings for inference APIs (frontend/backend request/response headers & body bytes, and LLM log settings).')
+param azureMonitorLogSettings object = {
+  frontend: {
+    request:  { headers: [], body: { bytes: 0 } }
+    response: { headers: [], body: { bytes: 0 } }
+  }
+  backend: {
+    request:  { headers: [], body: { bytes: 0 } }
+    response: { headers: [], body: { bytes: 0 } }
+  }
+  largeLanguageModel: {
+    logs: 'enabled'
+    requests:  { messages: 'all', maxSizeInBytes: 262144 }
+    responses: { messages: 'all', maxSizeInBytes: 262144 }
+  }
+}
+
+@description('Application Insights diagnostic log settings for inference APIs (headers to capture and body bytes).')
+param appInsightsLogSettings object = {
+  headers: [ 'Content-type', 'User-agent', 'x-ms-region', 'x-ratelimit-remaining-tokens', 'x-ratelimit-remaining-requests' ]
+  body: { bytes: 0 }
+}
+
 @description('Enable an APIM backend that targets the AI Foundry embeddings endpoint')
 param enableEmbeddingsBackend bool = false
 
@@ -369,6 +392,8 @@ module apiUniversalLLM './inference-api.bicep' = {
     allowSubscriptionKey: entraAuth ? false:true
     apimLoggerId: apimAzMonitorLogger.id
     policyXml: loadTextContent('./policies/universal-llm-api-policy-v2.xml')
+    azureMonitorLogSettings: azureMonitorLogSettings
+    appInsightsLogSettings: appInsightsLogSettings
   }
   dependsOn: [
     policyFragments
@@ -390,6 +415,8 @@ module apimOpenaiApi './inference-api.bicep' = {
     allowSubscriptionKey: entraAuth ? false:true
     apimLoggerId: apimAzMonitorLogger.id
     policyXml: loadTextContent('./policies/azure-open-ai-api-policy.xml')
+    azureMonitorLogSettings: azureMonitorLogSettings
+    appInsightsLogSettings: appInsightsLogSettings
   }
   dependsOn: [
     policyFragments

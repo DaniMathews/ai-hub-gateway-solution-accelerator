@@ -18,7 +18,7 @@
         <include-fragment fragment-id="validate-model-access" />
 
         <!-- Capacity management - Subscription Level: allow only assigned tpm for each HR use case subscription -->
-        <llm-token-limit counter-key="@(context.Subscription.Id)" tokens-per-minute="400" estimate-prompt-tokens="false" tokens-consumed-header-name="consumed-tokens" remaining-tokens-header-name="remaining-tokens" token-quota="100000" token-quota-period="Monthly" retry-after-header-name="retry-after" />
+        <llm-token-limit counter-key="@(context.Subscription.Id)" tokens-per-minute="400" estimate-prompt-tokens="false" tokens-consumed-header-name="x-ratelimit-consumed-tokens" remaining-tokens-header-name="x-ratelimit-remaining-tokens" token-quota="100000" token-quota-period="Monthly" retry-after-header-name="retry-after" />
         
         <!-- Failure to pass content safety will result in 403 error -->
         <llm-content-safety backend-id="content-safety-backend" shield-prompt="true">
