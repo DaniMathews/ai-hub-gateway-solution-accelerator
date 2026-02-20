@@ -38,8 +38,7 @@ For a detailed stakeholder- and capability-level breakdown, see [Governance Hub 
 At a high level, the accelerator includes:
 
 - [bicep/infra](./bicep/infra): main IaC entrypoint and modules for provisioning the hub.
-- [src/usage-ingestion-logicapp](./src/usage-ingestion-logicapp): Logic App workflows for processing usage/log streams.
-- [src/usage-ingestion-function](./src/usage-ingestion-function): .NET Azure Function(s) supporting ingestion and processing.
+- [src/usage-ingestion-logicapp](./src/usage-ingestion-logicapp): Logic App workflows for processing usage/log streams and other governance workflows.
 - [validation](./validation): Jupyter notebooks for post-deployment validation and onboarding.
 - [guides](./guides): operational and architecture documentation.
 
