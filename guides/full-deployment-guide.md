@@ -103,6 +103,7 @@ Then register all required resource providers:
 
 ```bash
 # Register all required providers
+az provider register --namespace Microsoft.AlertsManagement
 az provider register --namespace Microsoft.ApiCenter
 az provider register --namespace Microsoft.ApiManagement
 az provider register --namespace Microsoft.App
