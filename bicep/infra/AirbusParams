@@ -1,1 +1,342 @@
+using '../citadel/bicep/infra/main.bicep'
 
+/* 
+ * AI Hub Gateway Solution Accelerator - Complete Parameters File
+ * This file contains ALL available parameters with default values
+ * Customize values as needed for your deployment
+ */
+
+// =============================================================================
+// BASIC PARAMETERS
+// az deployment sub create --location australiaeast --template-file ../citadel/bicep/infra/main.bicep --parameters ./main.parameters.daw.bicepparam 
+// =============================================================================
+
+// Name of the environment (generates unique hash for resources)
+param environmentName = 'airbus-daw'
+
+// Primary Azure region for deployment https://learn.microsoft.com/azure/ai-foundry/reference/region-support
+// Allowed: uaenorth, southafricanorth, westeurope, southcentralus, australiaeast, 
+//          canadaeast, eastus, eastus2, francecentral, japaneast, northcentralus, 
+//          swedencentral, switzerlandnorth, uksouth
+param location = 'australiaeast'
+// See AU East latency at https://learn.microsoft.com/azure/networking/azure-network-latency?tabs=APAC%2CAusNz
+// param secondaryLocation = 'japaneast'
+
+param apicLocation = location
+
+// Tags applied to all resources
+param tags = {
+  Environment: 'SBX' // LGIRS code rather than recommended Development/Staging/Production
+  System: 'AIRBUS' // LGIRS short system code as found in Apps Manager
+  'azd-env-name': 'airbus-daw'
+  // CostCenter: 'Engineering'
+  // Owner: 'zzai-working-group@lgirs.wa.gov.au'
+  // Criticality: 'Low' 
+}
+
+// =============================================================================
+// RESOURCE NAMES (leave empty for auto-generated names)
+// =============================================================================
+param resourceGroupName = 'DAW-SYD-NS-ARG-Airbus'
+param apimIdentityName = 'sp-daw-syd-sbx-airbus-apim'
+param usageLogicAppIdentityName = 'sp-daw-syd-sbx-airbus-usage'
+param apimServiceName = 'daw-syd-sbx-airbus-apim' // TODO: BYO
+param logAnalyticsName = 'dawsydsbxlawairbus'     // TODO: BYO warsydsbxlawapim
+param apimApplicationInsightsDashboardName = 'daw-syd-sbx-ain-apim-airbus-dash'
+param funcAplicationInsightsDashboardName = 'daw-syd-sbx-ain-airbus-functions-dash'
+param foundryApplicationInsightsDashboardName = 'daw-syd-sbx-ain-airbus-foundry-dash'
+param apimApplicationInsightsName = 'daw-syd-sbx-ain-apim'
+param funcApplicationInsightsName = 'daw-syd-sbx-ain-airbus-functions'
+param foundryApplicationInsightsName = 'daw-syd-sbx-ain-airbus-foundry'
+param eventHubNamespaceName = 'daw-syd-sbx-evh-airbus'
+param cosmosDbAccountName = 'dawsydsbxcosmosairbus'
+param usageProcessingLogicAppName = 'daw-syd-sbx-lap-airbus-usage'
+param storageAccountName = 'dawsydsbxstaairbus'
+param languageServiceName = 'daw-syd-sbx-lan-airbus'
+param aiContentSafetyName = 'daw-syd-sbx-cos-airbus'
+param apicServiceName = 'daw-syd-sbx-apc-apim'
+param aiFoundryResourceName = 'daw-syd-sbx-aif-airbus'
+param keyVaultName = 'dawsydsbxkeyairbus'
+param redisCacheName = 'dawsydsbxredairbus' // TODO: Enable?
+
+// ============================================================================
+// MONITORING - Log Analytics configuration
+// ============================================================================
+param useExistingLogAnalytics = false
+param existingLogAnalyticsName = 'dawsydsbxlawapim'  // Name of existing Log Analytics workspace
+param existingLogAnalyticsRG = 'daw-syd-ns-arg-apim' // Resource group of existing workspace
+param existingLogAnalyticsSubscriptionId = ''        // Subscription ID (leave empty for current subscription)
+
+// =============================================================================
+// NETWORKING PARAMETERS
+// =============================================================================
+
+// Virtual Network Configuration
+param vnetName = 'DAW-SYD-NS-VNT-10.64.80.0' // https://portal.azure.com/#@waresources.onmicrosoft.com/resource/subscriptions/0de677dd-b619-4940-89a8-e0eef88f21f1/resourceGroups/WAR-SYD-NS-ARG-Network/providers/Microsoft.Network/virtualNetworks/WAR-SYD-NS-VNT-10.64.80.0/subnets
+param useExistingVnet = false
+param existingVnetRG = 'DAW-SYD-NS-ARG-Network'
+
+// Subnet Names
+param apimSubnetName = 'DAW-SYD-NS-SUB-APIM'
+param privateEndpointSubnetName = 'DAW-SYD-NS-SUB-PE'
+param functionAppSubnetName = 'DAW-SYD-NS-SUB-ASE'
+
+// Network Security Groups and Route Tables
+param apimNsgName = 'DAW-SYD-NS-NSG-APIM'
+param privateEndpointNsgName = 'DAW-SYD-NS-NSG-PE'
+param functionAppNsgName = 'DAW-SYD-NS-NSG-ASE' // TODO: Deploy functionApp into ASE?
+param apimRouteTableName = 'DAW-SYD-NS-RT-APIM'
+
+// VNet Address Spaces and Subnet Prefixes
+param vnetAddressPrefix = '10.64.80.0/21'
+param apimSubnetPrefix = '10.64.83.0/27'
+param privateEndpointSubnetPrefix = '10.64.83.64/26'
+param functionAppSubnetPrefix = '10.64.84.0/25'
+
+// DNS Zone parameters (legacy approach - single subscription/RG)
+// param dnsZoneRG = 'DAW-SYD-NS-ARG-Network'
+// param dnsSubscriptionId = '0de677dd-b619-4940-89a8-e0eef88f21f1'
+
+// Existing Private DNS Zones (BYO approach - specify resource IDs per DNS zone type)
+// Use this when you have existing Private DNS Zones in different subscriptions/resource groups
+// Leave empty strings to use the legacy dnsZoneRG/dnsSubscriptionId approach
+param existingPrivateDnsZones = {
+  openai: readEnvironmentVariable('EXISTING_DNS_ZONE_OPENAI', '')              // privatelink.openai.azure.com
+  keyVault: readEnvironmentVariable('EXISTING_DNS_ZONE_KEYVAULT', '')          // privatelink.vaultcore.azure.net
+  monitor: readEnvironmentVariable('EXISTING_DNS_ZONE_MONITOR', '')            // privatelink.monitor.azure.com
+  eventHub: readEnvironmentVariable('EXISTING_DNS_ZONE_EVENTHUB', '')          // privatelink.servicebus.windows.net
+  cosmosDb: readEnvironmentVariable('EXISTING_DNS_ZONE_COSMOSDB', '')          // privatelink.documents.azure.com
+  storageBlob: readEnvironmentVariable('EXISTING_DNS_ZONE_STORAGE_BLOB', '')   // privatelink.blob.core.windows.net
+  storageFile: readEnvironmentVariable('EXISTING_DNS_ZONE_STORAGE_FILE', '')   // privatelink.file.core.windows.net
+  storageTable: readEnvironmentVariable('EXISTING_DNS_ZONE_STORAGE_TABLE', '') // privatelink.table.core.windows.net
+  storageQueue: readEnvironmentVariable('EXISTING_DNS_ZONE_STORAGE_QUEUE', '') // privatelink.queue.core.windows.net
+  cognitiveServices: readEnvironmentVariable('EXISTING_DNS_ZONE_COGNITIVE', '') // privatelink.cognitiveservices.azure.com
+  apimGateway: readEnvironmentVariable('EXISTING_DNS_ZONE_APIM', '')           // privatelink.azure-api.net
+  aiServices: readEnvironmentVariable('EXISTING_DNS_ZONE_AI_SERVICES', '')     // privatelink.services.azure.com
+  redis: readEnvironmentVariable('EXISTING_DNS_ZONE_REDIS', '')                // privatelink.redis.azure.net
+}
+
+// Private Endpoint names
+param storageBlobPrivateEndpointName = 'DAW-SYD-NS-PE-AI-011'
+param storageFilePrivateEndpointName = 'DAW-SYD-NS-PE-AI-012'
+param storageTablePrivateEndpointName = 'DAW-SYD-NS-PE-AI-013'
+param storageQueuePrivateEndpointName = 'DAW-SYD-NS-PE-AI-014'
+param cosmosDbPrivateEndpointName = 'DAW-SYD-NS-PE-AI-004'
+param eventHubPrivateEndpointName = 'DAW-SYD-NS-PE-AI-003'
+param languageServicePrivateEndpointName = 'DAW-SYD-NS-PE-AI-021'
+param aiContentSafetyPrivateEndpointName = 'DAW-SYD-NS-PE-AI-022'
+param apimV2PrivateEndpointName = 'DAW-SYD-NS-PE-AI-001'
+param aiFoundryPrivateEndpointName = 'DAW-SYD-NS-PE-AI-002'
+param keyVaultPrivateEndpointName = 'DAW-SYD-NS-PE-AI-010'
+param redisPrivateEndpointName = 'DAW-SYD-NS-PE-AI-005'
+
+// Services network access configuration
+param apimNetworkType = 'Internal' // Allowed: External, Internal
+param apimV2UsePrivateEndpoint = true
+param apimV2PublicNetworkAccess = true
+param cosmosDbPublicAccess = 'Disabled'
+param eventHubNetworkAccess = 'Enabled' // TODO: disable? see https://github.com/Azure-Samples/ai-hub-gateway-solution-accelerator/blob/citadel-v1/guides/full-deployment-guide.md#7-security--compliance
+param languageServiceExternalNetworkAccess = 'Disabled'
+param aiContentSafetyExternalNetworkAccess = 'Disabled'
+param aiFoundryExternalNetworkAccess = 'Enabled' // TODO: disable SIT+
+param keyVaultExternalNetworkAccess = 'Disabled'
+param useAzureMonitorPrivateLinkScope = false
+param redisPublicNetworkAccess = 'Disabled'
+
+// ============================================================================
+// FEATURE FLAGS - Deploy specific capabilities
+// ============================================================================
+param createAppInsightsDashboards = true
+param enableAIModelInference = true
+param enableDocumentIntelligence = true
+param enableAzureAISearch = true
+param enableAIGatewayPiiRedaction = true
+param enableOpenAIRealtime = true
+param enableAIFoundry = true
+param entraAuth = true // TODO? see https://github.com/Azure-Samples/ai-hub-gateway-solution-accelerator/blob/citadel-v1/guides/entraid-auth-validation.md#approach-1-standard-entra-id-authentication
+param enableAPICenter = true // TODO?
+param enableManagedRedis = true // TODO?
+
+// ============================================================================
+// INFERENCE API DIAGNOSTIC LOG SETTINGS
+// ============================================================================
+
+// TODO: Defaults below are okay for low volume - review for PRD 
+// https://github.com/Azure-Samples/ai-hub-gateway-solution-accelerator/blob/citadel-v1/guides/full-deployment-guide.md#6-inference-api-diagnostic-logging
+
+// Azure Monitor diagnostic log settings for inference APIs
+// Controls frontend/backend request/response headers, body bytes, and LLM-specific log settings.
+// Max size in bytes for request/response bodies is 262144 bytes (256 KB).
+param azureMonitorLogSettings = {
+  frontend: {
+    request:  { headers: [], body: { bytes: 0 } }   // No frontend headers/body captured by default
+    response: { headers: [], body: { bytes: 0 } }
+  }
+  backend: {
+    request:  { headers: [], body: { bytes: 0 } }   // No backend headers/body captured by default
+    response: { headers: ['Content-type', 'User-agent', 'x-ms-region', 'x-ratelimit-remaining-tokens', 'x-ratelimit-remaining-requests'], body: { bytes: 0 } }
+  }
+  largeLanguageModel: {
+    logs: 'enabled'                                  // LLM logging enabled
+    requests:  { messages: 'all', maxSizeInBytes: 262144 }  // Capture all prompt messages (up to 256 KB)
+    responses: { messages: 'all', maxSizeInBytes: 262144 }  // Capture all completion messages (up to 256 KB)
+  }
+}
+
+// Application Insights diagnostic log settings for inference APIs
+// Controls which headers are captured and body byte limits (max 8192 bytes).
+param appInsightsLogSettings = {
+  headers: [ 'Content-type', 'User-agent', 'x-ms-region', 'x-ratelimit-remaining-tokens', 'x-ratelimit-remaining-requests' ]
+  body: { bytes: 8192 }
+}
+
+// =============================================================================
+// COMPUTE SKU & SIZE
+// =============================================================================
+param apimSku = 'Developer' // Developer, Premium, StandardV2, PremiumV2
+param apimSkuUnits = 1
+param eventHubCapacityUnits = 1
+param cosmosDbRUs = 400
+param cosmosDbEnableFreeTier = true
+param logicAppsSkuCapacityUnits = 1
+param languageServiceSkuName = 'S'
+param aiContentSafetySkuName = 'S0'
+param apicSku = 'Free'
+param keyVaultSkuName = 'standard'
+param redisSkuName = 'Balanced_B1'
+param redisSkuCapacity = 2
+
+// =============================================================================
+// ACCELERATOR SPECIFIC PARAMETERS
+// =============================================================================
+param logicContentShareName = 'usage-logic-content'
+
+// AI Search Instances Configuration
+// Add your AI Search instances here
+param aiSearchInstances = [
+  // Example:
+  // {
+  //   name: 'ai-search-01'
+  //   url: 'https://mysearch01.search.windows.net/'
+  //   description: 'AI Search Instance 1'
+  // }
+]
+
+// AI Foundry Instances Configuration
+// Configure AI Foundry instances, their locations and default project name
+param aiFoundryInstances = [
+  {
+    name: readEnvironmentVariable('AI_FOUNDRY_RESOURCE_NAME', '')
+    location: location // readEnvironmentVariable('AZURE_LOCATION', location)
+    customSubDomainName: ''
+    defaultProjectName: 'airbus-governance'
+  }
+  // {
+  //   name: readEnvironmentVariable('AI_FOUNDRY_RESOURCE_NAME', '')
+  //   location: 'eastus2'
+  //   customSubDomainName: ''
+  //   defaultProjectName: 'airbus-governance'
+  // }
+]
+
+// AI Foundry Model Deployments Configuration
+// See https://learn.microsoft.com/azure/ai-foundry/foundry-models/concepts/models-sold-directly-by-azure
+// and https://learn.microsoft.com/en-au/azure/ai-foundry/openai/concepts/model-retirements#current-models
+// aiserviceIndex: Index of the AI Foundry instance in aiFoundryInstances array
+// Leave aiserviceIndex empty to deploy to all instances
+param aiFoundryModelsConfig = [
+  {
+    name: 'gpt-4.1'
+    publisher: 'OpenAI'
+    version: '2025-04-14'
+    retirementDate: '2026-10-15'
+    sku: 'GlobalStandard'
+    capacity: 1
+    aiserviceIndex: 0
+  }
+  {
+    name: 'gpt-4.1-mini'
+    publisher: 'OpenAI'
+    version: '2025-04-14'
+    retirementDate: '2026-10-15'
+    sku: 'GlobalStandard'
+    capacity: 1
+    aiserviceIndex: 0
+  }
+  {
+    name: 'o4-mini'
+    publisher: 'OpenAI'
+    version: '2025-04-16'
+    retirementDate: '2027-05-15'
+    sku: 'GlobalStandard'
+    capacity: 1
+    aiserviceIndex: 0
+  }
+  /*
+    {
+      name: 'gpt-5.1'
+      publisher: 'OpenAI'
+      version: '2025-11-13'
+      retirementDate: '2027-05-15'
+      sku: 'GlobalStandard'
+      capacity: 1
+      aiserviceIndex: 0
+    }
+    {
+      name: 'gpt-5.1-chat'
+      publisher: 'OpenAI'
+      version: '2025-11-13'
+      retirementDate: '2027-05-15'
+      sku: 'GlobalStandard'
+      capacity: 1
+      aiserviceIndex: 0
+    }
+    {
+      name: 'gpt-5.1-codex'
+      publisher: 'OpenAI'
+      version: '2025-11-13'
+      retirementDate: '2027-05-15'
+      sku: 'GlobalStandard'
+      capacity: 1
+      aiserviceIndex: 0
+    }
+    {
+      name: 'gpt-5-mini'
+      publisher: 'OpenAI'
+      version: '2025-08-07'
+      retirementDate: '2027-02-05'
+      sku: 'GlobalStandard'
+      capacity: 1
+      aiserviceIndex: 0
+    }
+  {
+    name: 'text-embedding-3-small'
+    publisher: 'OpenAI'
+    version: '1'
+    retirementDate: '2027-04-14'
+    sku: 'GlobalStandard'
+    capacity: 100
+    aiserviceIndex: 0
+  }
+  {
+    name: 'text-embedding-3-large'
+    publisher: 'OpenAI'
+    version: '1'
+    retirementDate: '2027-04-14'
+    sku: 'GlobalStandard'
+    capacity: 100
+    aiserviceIndex: 0
+  }
+  */
+]
+
+// Semantic caching APIM integration configurations
+param primaryFoundryEmbeddingModelName = readEnvironmentVariable('PRIMARY_FOUNDRY_EMBEDDING_MODEL_NAME', 'text-embedding-3-large')
+
+// =============================================================================
+// MICROSOFT ENTRA ID AUTHENTICATION
+// =============================================================================
+param entraTenantId = '2939952e-67df-4f36-a722-bb86229d32b5'
+param entraClientId = 'b1f2dc76-aac5-49d2-9a42-1a4d5407d5df'
+param entraAudience = 'api://citadel-gateway'
+ 
