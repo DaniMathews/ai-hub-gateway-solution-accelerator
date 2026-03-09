@@ -21,12 +21,12 @@ This repository is a **solution accelerator** that helps you deploy and operate 
 - Usage ingestion components (Logic Apps + Azure Functions)
 - Validation notebooks and operational guides
 
-## � Part of the Foundry Citadel Platform
+## 🏛️ Part of the Foundry Citadel Platform
 
 > [!IMPORTANT]
-> This accelerator is the **reference implementation of Layer 1 – Governance Hub** in the [Foundry Citadel Platform](https://aka.ms/foundry-citadel) layered security architecture.
+> This accelerator is the **reference implementation of Layer 1 – Governance Hub** in the [AI Citadel Platform](https://aka.ms/foundry-citadel) layered security architecture.
 
-The **Foundry Citadel Platform** is a unified, layered approach to AI security and compliance, designed to enable enterprises to scale AI innovation while maintaining trust, security, and regulatory alignment. The platform is composed of four interlocking layers:
+The **AI Citadel Platform** is a unified, layered approach to AI security and compliance, designed to enable enterprises to scale AI innovation while maintaining trust, security, and regulatory alignment. The platform is composed of four interlocking layers:
 
 | Layer | Name | Responsibility | Implementation |
 |-------|------|----------------|----------------|
@@ -37,11 +37,11 @@ The **Foundry Citadel Platform** is a unified, layered approach to AI security a
 
 The layers are not isolated silos — they form an integrated architecture grounded in the principle of **separation of concerns with unified oversight**. Layer 1 (this accelerator) acts as the physical gateway through a hub-and-spoke deployment where a centrally managed AI gateway (Azure API Management) enforces runtime policies, while spoke environments give each business unit autonomous development within guardrails.
 
-> 📎 For the full Citadel Platform architecture and guidance, visit: [aka.ms/foundry-citadel](https://aka.ms/foundry-citadel)
+> 📎 For the full Citadel Platform approach and guidance, visit: [aka.ms/foundry-citadel](https://aka.ms/foundry-citadel)
 
 ---
 
-## �🌟 Benefits (Summary)
+## 🌟 Benefits (Summary)
 
 Citadel Governance Hub helps you standardize AI governance while maintaining developer velocity:
 
@@ -131,7 +131,7 @@ Optionally you can deploy one or more generative AI services as part of the Cita
 
 | Component | Purpose | Enterprise Features |
 |---------|---------|---------------------|
-| **Microsoft Foundry** | LLM model hosting | Access to rich foundational model catalog with variety of deployment options |
+| **Microsoft Foundry** | Model Catalog | Access to rich foundational model catalog with variety of deployment options |
 
 #### Optional Components
 
