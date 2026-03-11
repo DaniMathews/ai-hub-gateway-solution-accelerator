@@ -17,6 +17,9 @@ param enablePIIAnonymization bool = true
 @description('Enable AI Model Inference features')
 param enableAIModelInference bool = true
 
+@description('Enable Unified AI API features')
+param enableUnifiedAiApi bool = true
+
 // ------------------
 //    RESOURCES
 // ------------------
@@ -125,6 +128,70 @@ resource aiFoundryDeploymentsPolicyFragment 'Microsoft.ApiManagement/service/pol
 }
 
 // ------------------
+//    UNIFIED AI API FRAGMENTS
+// ------------------
+
+resource centralCacheManagerFragment 'Microsoft.ApiManagement/service/policyFragments@2024-06-01-preview' = if (enableUnifiedAiApi) {
+  parent: apimService
+  name: 'central-cache-manager'
+  properties: {
+    description: 'Caches metadata configuration for Unified AI API performance'
+    value: loadTextContent('./policies/frag-central-cache-manager.xml')
+    format: 'rawxml'
+  }
+}
+
+resource requestProcessorFragment 'Microsoft.ApiManagement/service/policyFragments@2024-06-01-preview' = if (enableUnifiedAiApi) {
+  parent: apimService
+  name: 'request-processor'
+  properties: {
+    description: 'Analyzes incoming Unified AI requests to extract routing context'
+    value: loadTextContent('./policies/frag-request-processor.xml')
+    format: 'rawxml'
+  }
+}
+
+resource pathBuilderFragment 'Microsoft.ApiManagement/service/policyFragments@2024-06-01-preview' = if (enableUnifiedAiApi) {
+  parent: apimService
+  name: 'path-builder'
+  properties: {
+    description: 'Reconstructs backend URI paths for Unified AI API routing'
+    value: loadTextContent('./policies/frag-path-builder.xml')
+    format: 'rawxml'
+  }
+}
+
+resource securityHandlerFragment 'Microsoft.ApiManagement/service/policyFragments@2024-06-01-preview' = if (enableUnifiedAiApi) {
+  parent: apimService
+  name: 'security-handler'
+  properties: {
+    description: 'Handles API Key and optional JWT authentication for Unified AI API'
+    value: loadTextContent('./policies/frag-security-handler.xml')
+    format: 'rawxml'
+  }
+}
+
+resource backendSelectorUnifiedFragment 'Microsoft.ApiManagement/service/policyFragments@2024-06-01-preview' = if (enableUnifiedAiApi) {
+  parent: apimService
+  name: 'backend-selector-unified'
+  properties: {
+    description: 'Metadata-driven backend selection for Unified AI API'
+    value: loadTextContent('./policies/frag-backend-selector-unified.xml')
+    format: 'rawxml'
+  }
+}
+
+resource diagnosticHeadersFragment 'Microsoft.ApiManagement/service/policyFragments@2024-06-01-preview' = if (enableUnifiedAiApi) {
+  parent: apimService
+  name: 'diagnostic-headers'
+  properties: {
+    description: 'Adds UAIG-* response headers for Unified AI API debugging'
+    value: loadTextContent('./policies/frag-diagnostic-headers.xml')
+    format: 'rawxml'
+  }
+}
+
+// ------------------
 //    OUTPUTS
 // ------------------
 
@@ -149,3 +216,16 @@ output piiStateSavingPolicyFragmentName string = enablePIIAnonymization ? piiSta
 output aiFoundryCompatibilityPolicyFragmentName string = enablePIIAnonymization ? aiFoundryCompatibilityPolicyFragment.name : ''
 @description('The name of the AI Foundry deployments policy fragment')
 output aiFoundryDeploymentsPolicyFragmentName string = enableAIModelInference ? aiFoundryDeploymentsPolicyFragment.name : ''
+
+@description('The name of the central cache manager policy fragment')
+output centralCacheManagerFragmentName string = enableUnifiedAiApi ? centralCacheManagerFragment.name : ''
+@description('The name of the request processor policy fragment')
+output requestProcessorFragmentName string = enableUnifiedAiApi ? requestProcessorFragment.name : ''
+@description('The name of the path builder policy fragment')
+output pathBuilderFragmentName string = enableUnifiedAiApi ? pathBuilderFragment.name : ''
+@description('The name of the security handler policy fragment')
+output securityHandlerFragmentName string = enableUnifiedAiApi ? securityHandlerFragment.name : ''
+@description('The name of the backend selector unified policy fragment')
+output backendSelectorUnifiedFragmentName string = enableUnifiedAiApi ? backendSelectorUnifiedFragment.name : ''
+@description('The name of the diagnostic headers policy fragment')
+output diagnosticHeadersFragmentName string = enableUnifiedAiApi ? diagnosticHeadersFragment.name : ''

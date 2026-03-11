@@ -83,6 +83,7 @@ var snippetPiiDeanonymizationOutbound = loadTextContent('snippets/pii-deanonymiz
 var snippetPiiStateSaving = loadTextContent('snippets/pii-state-saving.xml')
 var snippetUsageTracking = loadTextContent('snippets/usage-tracking.xml')
 var snippetAlertsThrottling = loadTextContent('snippets/alerts-throttling.xml')
+var snippetJwtAuth = loadTextContent('snippets/jwt-auth.xml')
 var masterTemplate = loadTextContent('policy-master-template.xml')
 
 // ============================================================================
@@ -122,6 +123,9 @@ var cd2Default = policiesConfig.?usageTracking.?customDimension2.?default ?? ''
 // --- Alerts ---
 var alertsEnabled = policiesConfig.?alerts.?enabled ?? false
 var throttlingEvents = policiesConfig.?alerts.?throttlingEvents ?? false
+
+// --- JWT Authentication ---
+var jwtAuthEnabled = policiesConfig.?jwtAuth.?enabled ?? false
 
 // --- Derived flags ---
 var needsModelExtraction = modelAccessEnabled || (capacityEnabled && capacityMode == 'per-model')
@@ -266,6 +270,7 @@ var alertsOnErrorXml = alertsEnabled && throttlingEvents
 
 // Conditionally build section arrays (only include non-empty sections)
 var inboundSections = flatten([
+  jwtAuthEnabled ? [snippetJwtAuth] : []
   needsModelExtraction ? [modelExtractionXml] : []
   modelAccessEnabled ? [modelAccessXml] : []
   capacityEnabled ? [capacityXml] : []

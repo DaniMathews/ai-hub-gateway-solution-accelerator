@@ -1,0 +1,89 @@
+<fragment>
+    <!--
+        Fragment: Backend Selector (Unified)
+        Purpose: Selects appropriate backend based on model and API type using metadata configuration,
+                 configures backend service, and applies backend-specific authentication overrides.
+
+        Input Variables:
+        - api-type: API type for backend selection (openai|inference|responses|geminiopenai|etc.)
+        - requestedModel: Extracted model identifier from request-processor
+        - config-models: Pre-extracted models configuration from central-cache-manager
+        - config-api-types: Pre-extracted API types configuration from central-cache-manager
+
+        Output Variables:
+        - selected-backend: Selected backend name
+
+        Backend Selection Logic:
+        1. If api-type defines an explicit 'backend' in config → use it (e.g., responses → responses-backend)
+        2. Otherwise, look up model in config-models → use its 'backend' pool
+        3. If neither found → return 500 error
+
+        Upstream Dependencies:
+        - request-processor fragment: Provides api-type, requestedModel
+        - central-cache-manager fragment: Provides config-models, config-api-types
+    -->
+
+    <!-- Skip backend selection for non-LLM requests (deployment listings handled by operation policies) -->
+    <choose>
+        <when condition="@(context.Variables.GetValueOrDefault<string>("requestedModel", "") == "non-llm-request")">
+            <!-- Non-LLM request - backend selection skipped -->
+        </when>
+        <otherwise>
+            <!-- Backend selection: if api-type defines a backend, use it; otherwise use model's backend -->
+            <set-variable name="selected-backend" value="@{
+                var apiType = context.Variables.GetValueOrDefault<string>("api-type", "openai");
+                var modelId = context.Variables.GetValueOrDefault<string>("requestedModel", "unknown");
+                var models = context.Variables.GetValueOrDefault<JObject>("config-models");
+                var apiTypes = context.Variables.GetValueOrDefault<JObject>("config-api-types");
+
+                // Check if api-type has an explicit backend (e.g., responses → standard-responses-backend)
+                var apiTypeBackend = apiTypes?[apiType]?["backend"]?.ToString();
+                if (!string.IsNullOrEmpty(apiTypeBackend)) {
+                    return apiTypeBackend;
+                }
+
+                // Look up model's backend from config
+                var modelBackend = models?[modelId]?["backend"]?.ToString();
+                if (!string.IsNullOrEmpty(modelBackend)) {
+                    return modelBackend;
+                }
+
+                return string.Empty;
+            }" />
+
+            <!-- Validate backend was found -->
+            <choose>
+                <when condition="@(string.IsNullOrEmpty(context.Variables.GetValueOrDefault<string>("selected-backend")))">
+                    <trace source="Backend-Selector-Error" severity="error">
+                        <message>@($"Unified AI - Backend not configured for model {context.Variables.GetValueOrDefault<string>("requestedModel", "not-set")} with API type {context.Variables.GetValueOrDefault<string>("api-type", "not-set")}")</message>
+                    </trace>
+                    <return-response>
+                        <set-status code="500" reason="Internal Server Error" />
+                        <set-header name="Content-Type" exists-action="override">
+                            <value>application/json</value>
+                        </set-header>
+                        <set-body>@{
+                            return new JObject(
+                                new JProperty("error", new JObject(
+                                    new JProperty("message", $"Backend not configured for model '{context.Variables.GetValueOrDefault<string>("requestedModel", "unknown")}' with API type '{context.Variables.GetValueOrDefault<string>("api-type", "unknown")}'."),
+                                    new JProperty("code", "backend_not_configured")
+                                ))
+                            ).ToString();
+                        }</set-body>
+                    </return-response>
+                </when>
+            </choose>
+
+            <!-- Set backend service -->
+            <set-backend-service backend-id="@(context.Variables.GetValueOrDefault<string>("selected-backend"))" />
+
+            <!-- External backend authentication is handled by backend-level credentials configuration -->
+            <!-- For external providers (e.g., Gemini), the API key is set in the APIM backend resource -->
+            <!-- via llm-backends.bicep credentials property, so no override is needed here -->
+
+            <trace source="Backend-Selector-Complete" severity="information">
+                <message>@($"Unified AI - Backend {context.Variables.GetValueOrDefault<string>("selected-backend", "not-set")} selected for model {context.Variables.GetValueOrDefault<string>("requestedModel", "not-set")} with API type {context.Variables.GetValueOrDefault<string>("api-type", "not-set")}")</message>
+            </trace>
+        </otherwise>
+    </choose>
+</fragment>

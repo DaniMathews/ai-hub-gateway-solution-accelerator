@@ -123,6 +123,18 @@ param appInsightsLogSettings object = {
 @description('Enable an APIM backend that targets the AI Foundry embeddings endpoint')
 param enableEmbeddingsBackend bool = false
 
+@description('Enable the Unified AI Wildcard API (3rd API alongside Azure OpenAI and Universal LLM)')
+param enableUnifiedAiApi bool = true
+
+@description('Enable JWT authentication support for the Unified AI API (creates JWT named values)')
+param enableJwtAuth bool = false
+
+@description('JWT Tenant ID (required when enableJwtAuth is true and not using Entra module)')
+param jwtTenantId string = ''
+
+@description('JWT App Registration Client ID (required when enableJwtAuth is true and not using Entra module)')
+param jwtAppRegistrationId string = ''
+
 @description('URL for the AI Foundry embeddings endpoint (should be /models/embeddings on the primary Foundry resource)')
 param embeddingsBackendUrl string = ''
 
@@ -426,6 +438,68 @@ module apimOpenaiApi './inference-api.bicep' = {
   ]
 }
 
+////// Unified AI Wildcard API /////////////
+
+module apiUnifiedAI './unified-ai-api.bicep' = if (enableUnifiedAiApi) {
+  name: 'unified-ai-api'
+  params: {
+    apiManagementName: apimService.name
+    enabled: enableUnifiedAiApi
+    apimLoggerId: apimAzMonitorLogger.id
+    azureMonitorLogSettings: azureMonitorLogSettings
+  }
+  dependsOn: [
+    policyFragments
+    llmBackends
+    llmBackendPools
+    llmPolicyFragments
+  ]
+}
+
+////// JWT Authentication Named Values (for Unified AI API) /////////////
+
+var jwtTenantIdValue = !empty(jwtTenantId) ? jwtTenantId : subscription().tenantId
+var jwtAppRegIdValue = !empty(jwtAppRegistrationId) ? jwtAppRegistrationId : 'not-configured'
+
+// JWT named values are always created (even with placeholders when JWT is disabled)
+// because the security-handler fragment references them via {{...}} syntax which is
+// validated at deployment time. The fragment gracefully returns 503 if values are empty.
+resource jwtTenantIdNamedValue 'Microsoft.ApiManagement/service/namedValues@2024-06-01-preview' = if (enableUnifiedAiApi) {
+  name: 'JWT-TenantId'
+  parent: apimService
+  properties: {
+    displayName: 'JWT-TenantId'
+    value: enableJwtAuth ? jwtTenantIdValue : 'not-configured'
+  }
+}
+
+resource jwtAppRegistrationIdNamedValue 'Microsoft.ApiManagement/service/namedValues@2024-06-01-preview' = if (enableUnifiedAiApi) {
+  name: 'JWT-AppRegistrationId'
+  parent: apimService
+  properties: {
+    displayName: 'JWT-AppRegistrationId'
+    value: enableJwtAuth ? jwtAppRegIdValue : 'not-configured'
+  }
+}
+
+resource jwtIssuerNamedValue 'Microsoft.ApiManagement/service/namedValues@2024-06-01-preview' = if (enableUnifiedAiApi) {
+  name: 'JWT-Issuer'
+  parent: apimService
+  properties: {
+    displayName: 'JWT-Issuer'
+    value: enableJwtAuth ? '${environment().authentication.loginEndpoint}${jwtTenantIdValue}/v2.0' : 'not-configured'
+  }
+}
+
+resource jwtOpenIdConfigUrlNamedValue 'Microsoft.ApiManagement/service/namedValues@2024-06-01-preview' = if (enableUnifiedAiApi) {
+  name: 'JWT-OpenIdConfigUrl'
+  parent: apimService
+  properties: {
+    displayName: 'JWT-OpenIdConfigUrl'
+    value: enableJwtAuth ? '${environment().authentication.loginEndpoint}${jwtTenantIdValue}/v2.0/.well-known/openid-configuration' : 'not-configured'
+  }
+}
+
 ////// AI Foundry Integration Requirements /////////////
 
 // Typed resource reference for the Universal LLM API (created by module above)
@@ -621,6 +695,7 @@ module policyFragments './policy-fragments.bicep' = {
     apimServiceName: apimService.name
     enablePIIAnonymization: enablePIIAnonymization
     enableAIModelInference: enableAIModelInference
+    enableUnifiedAiApi: enableUnifiedAiApi
   }
   dependsOn: [
     apiopenAiApiClientNamedValue
@@ -631,6 +706,10 @@ module policyFragments './policy-fragments.bicep' = {
     ehPIIUsageLogger
     piiServiceUrlNamedValue
     piiServiceKeyNamedValue
+    jwtTenantIdNamedValue
+    jwtAppRegistrationIdNamedValue
+    jwtIssuerNamedValue
+    jwtOpenIdConfigUrlNamedValue
   ]
 }
 

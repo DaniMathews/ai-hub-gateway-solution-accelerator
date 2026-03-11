@@ -1,0 +1,2 @@
+        <!-- JWT Auth: Set jwtRequired so security-handler fragment enforces JWT validation -->
+        <set-variable name="jwtRequired" value="true" />
