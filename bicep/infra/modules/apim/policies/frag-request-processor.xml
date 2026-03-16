@@ -4,6 +4,8 @@
         Purpose: Analyzes incoming requests to extract routing context (API type, model, path)
                  and parse JSON bodies. Provides foundational variables used by all downstream fragments.
                  Uses centralized 'requestedModel' variable name for compatibility with existing AI Hub Gateway fragments.
+                 Sets apiTypeOverrideBackend when api-type config defines an explicit backend.
+                 Sets skipBackendUrlRewrite so set-backend-authorization defers URI rewriting to path-builder.
 
         Input Variables:
         - context.Request.Url.Path: Request path to analyze
@@ -20,12 +22,15 @@
         - parsed-request-body: Parsed JSON object from request body (empty JObject for GET/DELETE or parse failure)
         - selected-api-version: API version for backend requests (model-specific or api-type default)
         - is-streaming: Whether request has stream:true ("true"/"false")
+        - apiTypeOverrideBackend: Backend from api-type config (empty if model-based routing should be used)
+        - skipBackendUrlRewrite: Always set to "true" — path-builder handles URI construction for Unified AI
 
         Downstream Consumers:
         - path-builder fragment: Uses api-type, routing-processed-path, response-id for backend path building
-        - backend-selector-unified fragment: Uses api-type, requestedModel for routing
-        - set-llm-usage fragment: Uses requestedModel for metrics (existing fragment, no change needed)
-        - validate-model-access fragment: Uses requestedModel for access check (existing fragment, no change needed)
+        - set-target-backend-pool fragment: Uses requestedModel, apiTypeOverrideBackend for routing
+        - set-backend-authorization fragment: Respects skipBackendUrlRewrite to skip URL rewriting
+        - set-llm-usage fragment: Uses requestedModel for metrics
+        - validate-model-access fragment: Uses requestedModel for access check
         - diagnostic-headers fragment: Uses routing information for debugging
 
         Upstream Dependencies:
@@ -85,6 +90,16 @@
     }" />
     <set-variable name="api-base-path" value="@(context.Variables.GetValueOrDefault<JObject>("api-type-config")?["base-path"]?.ToString() ?? "/openai")" />
     <set-variable name="api-path-segment" value="@(context.Variables.GetValueOrDefault<JObject>("api-type-config")?["path-segment"]?.ToString() ?? String.Empty)" />
+
+    <!-- Set apiTypeOverrideBackend when api-type config defines an explicit backend (e.g., responses → responses-backend) -->
+    <!-- This tells set-target-backend-pool to bypass pool-based model matching and use this backend directly -->
+    <set-variable name="apiTypeOverrideBackend" value="@{
+        var apiTypeConfig = context.Variables.GetValueOrDefault<JObject>("api-type-config");
+        return apiTypeConfig?["backend"]?.ToString() ?? String.Empty;
+    }" />
+
+    <!-- Signal that path-builder handles URI construction — set-backend-authorization should skip URL rewriting -->
+    <set-variable name="skipBackendUrlRewrite" value="true" />
 
     <!-- Parse request body for POST/PUT/PATCH methods -->
     <choose>

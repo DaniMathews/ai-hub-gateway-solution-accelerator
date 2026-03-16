@@ -8,7 +8,7 @@
         - auth-type, user-id, subscription-name (from security-handler)
         - requestedModel (from request-processor)
         - api-type, routing-processed-path, selected-api-version, is-streaming (from request-processor)
-        - selected-backend (from backend-selector-unified)
+        - selected-backend (aliased from targetBackendPool in unified-ai-api-policy)
         - cache-operation (from central-cache-manager)
         - config-models (from central-cache-manager)
         - finalPath (from path-builder)

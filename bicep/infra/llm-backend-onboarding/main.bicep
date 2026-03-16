@@ -42,6 +42,9 @@ param apimManagedIdentity object
     - modelFormat: (Optional) Model format identifier, default 'OpenAI'
     - modelVersion: (Optional) Version of the model, default '1'
     - retirementDate: (Optional) Retirement date for the model in YYYY-MM-DD format
+    - apiVersion: (Optional) API version for OpenAI-type requests, default '2024-02-15-preview'
+    - timeout: (Optional) Request timeout in seconds, default 120
+    - inferenceApiVersion: (Optional) API version for inference-type requests (e.g., '2024-05-01-preview')
   - priority: (Optional) 1-5, default 1 (lower = higher priority)
   - weight: (Optional) 1-1000, default 100 (higher = more traffic)
   '''
@@ -54,6 +57,7 @@ param apimManagedIdentity object
       supportedModels: [
         { name: 'gpt-4o', sku: 'GlobalStandard', capacity: 100, modelFormat: 'OpenAI', modelVersion: '2024-11-20', retirementDate: '2026-09-30' }
         { name: 'gpt-4o-mini', sku: 'GlobalStandard', capacity: 100, modelFormat: 'OpenAI', modelVersion: '2024-07-18', retirementDate: '2026-09-30' }
+        { name: 'Phi-4', sku: 'GlobalStandard', capacity: 1, modelFormat: 'Microsoft', modelVersion: '3', inferenceApiVersion: '2024-05-01-preview' }
       ]
       priority: 1
       weight: 100
@@ -64,6 +68,9 @@ param llmBackendConfig array
 
 @description('Whether to configure circuit breaker for backends (recommended for production)')
 param configureCircuitBreaker bool = true
+
+@description('Whether to generate and deploy the metadata-config fragment for Unified AI API routing. Enable this when you have the Unified AI API deployed and want the onboarding to update its model routing configuration.')
+param deployMetadataConfig bool = false
 
 // @description('Whether to deploy the Universal LLM API (set to false if API already exists)')
 // param deployUniversalLlmApi bool = true
@@ -139,6 +146,7 @@ module llmPolicyFragments 'modules/llm-policy-fragments.bicep' = {
     policyFragmentConfig: llmBackendPools.outputs.policyFragmentConfig
     managedIdentityClientId: managedIdentity.properties.clientId
     llmBackendConfig: llmBackendConfig
+    deployMetadataConfig: deployMetadataConfig
   }
 }
 

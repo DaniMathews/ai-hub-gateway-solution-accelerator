@@ -255,3 +255,102 @@ For different APIs or operations within the same product, you can configure diff
 4. **Monitor authentication metrics** to identify potential security issues
 5. **Regularly rotate client secrets** and update configurations accordingly
 6. **Test both approaches thoroughly** in non-production environments before deployment
+
+## Approach 3: Access Contract JWT Integration
+
+This approach uses the Access Contract system to enforce JWT authentication per-product. It is the recommended approach for the AI Hub Gateway because it provides the most granular control.
+
+### How It Works
+
+1. The `security-handler` policy fragment handles both API Key and optional JWT validation
+2. Access contracts can optionally enable JWT by setting `jwtAuth.enabled: true` in the contract JSON
+3. The product policy snippet `jwt-auth.xml` sets `jwtRequired=true`, which tells the security-handler to enforce JWT validation
+4. API Key authentication is always required; JWT adds a second layer of security
+
+### Architecture
+
+```mermaid
+sequenceDiagram
+    participant C as Client Application
+    participant E as Entra ID
+    participant A as APIM Gateway
+    participant P as Product Policy
+    participant S as Security Handler
+    participant B as Backend API
+
+    C->>E: 1. Authenticate & request token
+    E->>C: 2. Return JWT token
+    C->>A: 3. API Request with api-key + Bearer token
+    A->>A: 4. Validate subscription key (always required)
+    A->>P: 5. Execute product policy
+    P->>P: 6. Set jwtRequired=true (if JWT enabled in contract)
+    A->>S: 7. Execute security-handler fragment
+    S->>S: 8. Detect auth-type (api-key, jwt, api-key-jwt)
+    S->>E: 9. Validate JWT using APIM named values
+    S->>S: 10. Extract user-id from JWT claims
+    alt Valid
+        S->>B: 11. Forward to backend with managed identity
+        B->>A: 12. Return response
+        A->>C: 13. Return response
+    else Invalid
+        S->>C: 11. Return 401 Unauthorized
+    end
+```
+
+### Setup
+
+**Step 1: Enable Entra Auth in deployment parameters**
+
+```bicep
+param entraAuth = true
+```
+
+This creates the following APIM named values:
+- `JWT-TenantId` — Entra ID tenant ID
+- `JWT-AppRegistrationId` — App registration client ID (audience)
+- `JWT-Issuer` — Token issuer URL
+- `JWT-OpenIdConfigUrl` — OpenID Connect configuration endpoint
+
+**Step 2: Create an Access Contract with JWT enabled**
+
+```json
+{
+  "contractInfo": {
+    "businessUnit": "security-team",
+    "useCaseName": "SecureAgent",
+    "environment": "dev"
+  },
+  "policies": {
+    "jwtAuth": { "enabled": true },
+    "modelAccess": {
+      "enabled": true,
+      "allowedModels": ["gpt-4o", "gpt-4o-mini"]
+    }
+  },
+  "services": [
+    {
+      "code": "OAI",
+      "endpointSecretName": "secure-agent-endpoint",
+      "apiKeySecretName": "secure-agent-api-key"
+    }
+  ]
+}
+```
+
+**Step 3: Test with JWT token**
+
+```http
+POST https://{apim-gateway}/openai/deployments/gpt-4o/chat/completions?api-version=2024-02-15-preview
+api-key: {subscription-key}
+Authorization: Bearer {jwt-token}
+Content-Type: application/json
+
+{
+  "messages": [{"role": "user", "content": "Hello"}],
+  "max_tokens": 50
+}
+```
+
+### Validation
+
+Use the [JWT Access Contract Validation Notebook](../test/citadel-jwt-access-contract-tests.ipynb) to test end-to-end JWT authentication with access contracts.

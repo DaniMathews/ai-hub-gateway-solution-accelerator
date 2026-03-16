@@ -20,6 +20,9 @@ param enableAIModelInference bool = true
 @description('Enable Unified AI API features')
 param enableUnifiedAiApi bool = true
 
+@description('Enable JWT authentication support (deploys security-handler fragment)')
+param enableJwtAuth bool = false
+
 // ------------------
 //    RESOURCES
 // ------------------
@@ -161,22 +164,12 @@ resource pathBuilderFragment 'Microsoft.ApiManagement/service/policyFragments@20
   }
 }
 
-resource securityHandlerFragment 'Microsoft.ApiManagement/service/policyFragments@2024-06-01-preview' = if (enableUnifiedAiApi) {
+resource securityHandlerFragment 'Microsoft.ApiManagement/service/policyFragments@2024-06-01-preview' = if (enableJwtAuth || enableUnifiedAiApi) {
   parent: apimService
   name: 'security-handler'
   properties: {
-    description: 'Handles API Key and optional JWT authentication for Unified AI API'
+    description: 'Handles API Key and optional JWT authentication across all APIs'
     value: loadTextContent('./policies/frag-security-handler.xml')
-    format: 'rawxml'
-  }
-}
-
-resource backendSelectorUnifiedFragment 'Microsoft.ApiManagement/service/policyFragments@2024-06-01-preview' = if (enableUnifiedAiApi) {
-  parent: apimService
-  name: 'backend-selector-unified'
-  properties: {
-    description: 'Metadata-driven backend selection for Unified AI API'
-    value: loadTextContent('./policies/frag-backend-selector-unified.xml')
     format: 'rawxml'
   }
 }
@@ -225,7 +218,5 @@ output requestProcessorFragmentName string = enableUnifiedAiApi ? requestProcess
 output pathBuilderFragmentName string = enableUnifiedAiApi ? pathBuilderFragment.name : ''
 @description('The name of the security handler policy fragment')
 output securityHandlerFragmentName string = enableUnifiedAiApi ? securityHandlerFragment.name : ''
-@description('The name of the backend selector unified policy fragment')
-output backendSelectorUnifiedFragmentName string = enableUnifiedAiApi ? backendSelectorUnifiedFragment.name : ''
 @description('The name of the diagnostic headers policy fragment')
 output diagnosticHeadersFragmentName string = enableUnifiedAiApi ? diagnosticHeadersFragment.name : ''

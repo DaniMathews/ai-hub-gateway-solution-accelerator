@@ -7,16 +7,26 @@
             Purpose: Main orchestration policy for the Unified AI Gateway that coordinates all policy
                      fragments to provide comprehensive AI model routing, authentication, rate limiting,
                      and monitoring across multiple API types and model providers.
+                     
+                     Uses shared fragments (set-backend-pools, set-target-backend-pool,
+                     set-backend-authorization, validate-model-access, set-llm-usage) unified across
+                     all 3 API flavors (Azure OpenAI, Universal LLM, Unified AI).
+                     Uses Unified-AI-specific fragments (metadata-config, central-cache-manager,
+                     request-processor, security-handler, path-builder, diagnostic-headers) for
+                     wildcard routing, multi-API-type support, and JWT authentication.
 
             Fragment Execution Order:
-            1. metadata-config: Load centralized configuration (models, api-types, timeouts)
-            2. central-cache-manager: Cache management for configuration
-            3. request-processor: Request analysis (URL routing + body parsing + model extraction)
-            4. security-handler: Authentication (API Key + optional JWT) and backend auth
-            5. backend-selector-unified: Model and backend selection from metadata
-            6. path-builder: Backend path construction and URI rewriting
-            7. set-llm-usage: Token usage metrics (reused from existing fragments)
-            8. diagnostic-headers: Response header injection (outbound)
+            1. metadata-config: Load centralized configuration (models, api-types, timeouts) [Unified AI specific]
+            2. central-cache-manager: Cache management for configuration [Unified AI specific]
+            3. request-processor: Request analysis (URL routing + body parsing + model extraction) [Unified AI specific]
+            4. security-handler: Frontend authentication (API Key + optional JWT) [Unified AI specific]
+            5. validate-model-access: Model access control per product [SHARED]
+            6. set-backend-pools: Load backend pool configurations [SHARED]
+            7. set-target-backend-pool: Select target backend (with api-type override support) [SHARED]
+            8. set-backend-authorization: Backend auth + set-backend-service [SHARED]
+            9. path-builder: Backend path construction and URI rewriting [Unified AI specific]
+            10. set-llm-usage: Token usage metrics [SHARED]
+            11. diagnostic-headers: Response header injection (outbound) [Unified AI specific]
         -->
 
         <!-- Validate product context -->
@@ -39,23 +49,42 @@
             </when>
         </choose>
 
-        <!-- Step 1-2: Load and cache configuration -->
+        <!-- Step 1-2: Load and cache configuration [Unified AI specific] -->
         <include-fragment fragment-id="metadata-config" />
         <include-fragment fragment-id="central-cache-manager" />
 
-        <!-- Step 3: Analyze request (extracts api-type, requestedModel, path info) -->
+        <!-- Step 3: Analyze request - extracts api-type, requestedModel, path info, -->
+        <!--         apiTypeOverrideBackend, and skipBackendUrlRewrite [Unified AI specific] -->
         <include-fragment fragment-id="request-processor" />
 
-        <!-- Step 4: Authenticate and set backend credentials -->
+        <!-- Step 4: Frontend authentication (API Key + optional JWT) [Unified AI specific] -->
         <include-fragment fragment-id="security-handler" />
 
-        <!-- Step 5: Select backend based on model and API type -->
-        <include-fragment fragment-id="backend-selector-unified" />
+        <!-- Step 5: Model access control per product [SHARED with Azure OpenAI / Universal LLM] -->
+        <include-fragment fragment-id="validate-model-access" />
 
-        <!-- Step 6: Build backend path and rewrite URI -->
+        <!-- RBAC: Set allowed backend pools (comma-separated pool IDs, empty = all pools allowed) -->
+        <set-variable name="allowedBackendPools" value="" />
+        <!-- Set default backend pool (empty = return error for unmapped models) -->
+        <set-variable name="defaultBackendPool" value="" />
+
+        <!-- Step 6: Load backend pool configurations [SHARED with Azure OpenAI / Universal LLM] -->
+        <include-fragment fragment-id="set-backend-pools" />
+
+        <!-- Step 7: Select target backend pool [SHARED - extended with apiTypeOverrideBackend for Unified AI] -->
+        <include-fragment fragment-id="set-target-backend-pool" />
+
+        <!-- Alias targetBackendPool to selected-backend for diagnostic-headers compatibility -->
+        <set-variable name="selected-backend" value="@(context.Variables.GetValueOrDefault<string>("targetBackendPool", ""))" />
+
+        <!-- Step 8: Backend auth + set-backend-service [SHARED with Azure OpenAI / Universal LLM] -->
+        <!-- skipBackendUrlRewrite is set by request-processor, so URL rewriting is handled by path-builder -->
+        <include-fragment fragment-id="set-backend-authorization" />
+
+        <!-- Step 9: Build backend path and rewrite URI [Unified AI specific] -->
         <include-fragment fragment-id="path-builder" />
 
-        <!-- Step 7: Configure token usage metrics (reuses existing AI Hub Gateway fragment) -->
+        <!-- Step 10: Token usage metrics [SHARED with Azure OpenAI / Universal LLM] -->
         <include-fragment fragment-id="set-llm-usage" />
 
         <!-- CORS Configuration for AI Foundry Compatibility -->

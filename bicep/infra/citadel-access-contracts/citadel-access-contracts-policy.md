@@ -212,9 +212,117 @@ Content safety can be enforced at a gateway level using the built-in content saf
 </inbound>
 ```
 
-### OAuth JWT Validation Policy
+### JWT Authentication Policy
 
-TBD
+JWT (JSON Web Token) authentication adds a second security layer on top of subscription API keys. When enabled for a product, clients must provide both an `api-key` header and an `Authorization: Bearer {token}` header.
+
+JWT validation is handled by the `security-handler` policy fragment, which is deployed when `entraAuth=true` in the gateway configuration. The fragment validates tokens against Microsoft Entra ID using APIM named values.
+
+**Prerequisites:**
+- Citadel Governance Hub deployed with `entraAuth=true`
+- APIM named values configured: `JWT-TenantId`, `JWT-AppRegistrationId`, `JWT-Issuer`, `JWT-OpenIdConfigUrl`
+- Entra ID App Registration created (auto-provisioned or manual)
+
+**Basic Usage - Enable JWT for a Product:**
+
+```xml
+<inbound>
+    <base />
+    <!-- Enable JWT requirement for this product -->
+    <set-variable name="jwtRequired" value="true" />
+    
+    <!-- Other policies (model access, capacity, etc.) -->
+</inbound>
+```
+
+**How It Works:**
+
+1. The `security-handler` fragment (included via `<base />` from the API-level policy) detects the authentication method:
+   - `api-key` — only subscription key provided
+   - `jwt` — only Bearer token provided
+   - `api-key-jwt` — both provided
+   - `none` — neither provided
+
+2. API key is always validated first (APIM subscription validation)
+
+3. If `jwtRequired` is `"true"` (set by product policy), JWT validation is enforced:
+   - Token is validated against the Entra ID OpenID configuration endpoint
+   - Audience, issuer, and signature are verified
+   - User identity is extracted from the `azp` claim (client credentials flow)
+
+4. If a Bearer token is provided but `jwtRequired` is not set, the token is still validated (opportunistic validation)
+
+**Output Variables Set by Security Handler:**
+
+| Variable | Description | Example Values |
+|----------|-------------|----------------|
+| `auth-type` | Authentication method detected | `"api-key"`, `"jwt"`, `"api-key-jwt"`, `"none"` |
+| `subscription-name` | APIM subscription name | `"LLM-HR-ChatAgent-DEV-SUB-01"` |
+| `user-id` | User identifier (from JWT or subscription) | `"app-client-id"` or `"subscription-name"` |
+
+**Error Responses:**
+
+| Scenario | HTTP Status | Error Code | Message |
+|----------|-------------|------------|----------|
+| No API key | 401 | `unauthorized` | Access denied. A valid API key is required. |
+| JWT required but missing | 401 | `jwt_required` | JWT Bearer token is required for this product. |
+| Invalid JWT token | 401 | — | Access denied due to invalid or expired JWT bearer token. |
+| JWT config missing | 503 | `jwt_not_configured` | JWT authentication is not configured properly on the gateway. |
+
+**Token Acquisition (Client Credentials Flow):**
+
+```http
+POST https://login.microsoftonline.com/{tenant-id}/oauth2/v2.0/token
+Content-Type: application/x-www-form-urlencoded
+
+grant_type=client_credentials
+&client_id={entra-app-client-id}
+&client_secret={entra-app-client-secret}
+&scope={audience}/.default
+```
+
+**Using JWT via Agent Access Contract Request:**
+
+When using the `base-access-contract-request` module, enable JWT in the contract JSON:
+
+```json
+{
+  "policies": {
+    "jwtAuth": { "enabled": true }
+  }
+}
+```
+
+This automatically inserts the `<set-variable name="jwtRequired" value="true" />` snippet into the generated product policy.
+
+**Combining JWT with Other Policies:**
+
+JWT authentication works alongside all other access contract policies. A recommended order:
+
+```xml
+<inbound>
+    <base />
+    
+    <!-- 1. JWT Authentication (must be first to reject unauthorized requests early) -->
+    <set-variable name="jwtRequired" value="true" />
+    
+    <!-- 2. Model extraction and access control -->
+    <include-fragment fragment-id="set-llm-requested-model" />
+    <set-variable name="allowedModels" value="gpt-4o,gpt-4o-mini" />
+    <include-fragment fragment-id="validate-model-access" />
+    
+    <!-- 3. Capacity management -->
+    <llm-token-limit counter-key="@(context.Subscription.Id)" 
+        tokens-per-minute="5000" 
+        estimate-prompt-tokens="false" 
+        token-quota="100000" 
+        token-quota-period="Monthly" />
+    
+    <!-- 4. Content safety, PII, etc. -->
+</inbound>
+```
+
+> **NOTE:** The `jwtRequired` variable must be set before `<base />` returns from execution or within the product policy inbound section. The `security-handler` fragment reads this variable during API-level policy execution.
 
 ### PII Handling Policy
 

@@ -71,6 +71,10 @@ param apimManagedIdentity = {
 // - capacity: Capacity/TPM quota (default: 100)
 // - modelFormat: Model format identifier, e.g., 'OpenAI', 'DeepSeek', 'Microsoft' (default: 'OpenAI')
 // - modelVersion: Version of the model (default: '1')
+// - retirementDate: Retirement date in YYYY-MM-DD format (optional)
+// - apiVersion: API version for OpenAI-type requests (default: '2024-02-15-preview')
+// - timeout: Request timeout in seconds (default: 120)
+// - inferenceApiVersion: API version for inference-type requests, e.g., '2024-05-01-preview' (optional, for non-OpenAI models)
 //
 // Example configurations for different scenarios are shown below.
 // ============================================================================
@@ -89,8 +93,8 @@ param llmBackendConfig = [
     supportedModels: [
       { name: 'gpt-4o-mini', sku: 'GlobalStandard', capacity: 100, modelFormat: 'OpenAI', modelVersion: '2024-07-18', retirementDate: '2026-09-30' }
       { name: 'gpt-4o', sku: 'GlobalStandard', capacity: 100, modelFormat: 'OpenAI', modelVersion: '2024-11-20', retirementDate: '2026-09-30' }
-      { name: 'DeepSeek-R1', sku: 'GlobalStandard', capacity: 1, modelFormat: 'DeepSeek', modelVersion: '1', retirementDate: '2099-12-30' }
-      { name: 'Phi-4', sku: 'GlobalStandard', capacity: 1, modelFormat: 'Microsoft', modelVersion: '3', retirementDate: '2099-12-30' }
+      { name: 'DeepSeek-R1', sku: 'GlobalStandard', capacity: 1, modelFormat: 'DeepSeek', modelVersion: '1', retirementDate: '2099-12-30', inferenceApiVersion: '2024-05-01-preview' }
+      { name: 'Phi-4', sku: 'GlobalStandard', capacity: 1, modelFormat: 'Microsoft', modelVersion: '3', retirementDate: '2099-12-30', inferenceApiVersion: '2024-05-01-preview' }
       { name: 'text-embedding-3-large', sku: 'GlobalStandard', capacity: 100, modelFormat: 'OpenAI', modelVersion: '1', retirementDate: '2027-04-14' }
     ]
     priority: 1
@@ -109,7 +113,7 @@ param llmBackendConfig = [
     authScheme: 'managedIdentity'
     supportedModels: [
       { name: 'gpt-5', sku: 'GlobalStandard', capacity: 100, modelFormat: 'OpenAI', modelVersion: '2025-08-07', retirementDate: '2027-02-05' }
-      { name: 'DeepSeek-R1', sku: 'GlobalStandard', capacity: 1, modelFormat: 'DeepSeek', modelVersion: '1', retirementDate: '2099-12-30' }
+      { name: 'DeepSeek-R1', sku: 'GlobalStandard', capacity: 1, modelFormat: 'DeepSeek', modelVersion: '1', retirementDate: '2099-12-30', inferenceApiVersion: '2024-05-01-preview' }
       { name: 'text-embedding-3-large', sku: 'GlobalStandard', capacity: 100, modelFormat: 'OpenAI', modelVersion: '1', retirementDate: '2027-04-14' }
     ]
     priority: 2
@@ -144,3 +148,16 @@ param llmBackendConfig = [
 // Recommended: true for production environments
 // ============================================================================
 param configureCircuitBreaker = true
+
+// ============================================================================
+// OPTIONAL: Unified AI API Metadata Configuration
+// ============================================================================
+// Enable this to generate and deploy the metadata-config fragment used by
+// the Unified AI API. This fragment centralizes model routing, API version,
+// and timeout configuration. Set to true when you have the Unified AI API
+// deployed and want onboarding to update its model routing.
+//
+// When false (default), only the shared fragments (set-backend-pools,
+// set-target-backend-pool, set-backend-authorization) are generated.
+// ============================================================================
+param deployMetadataConfig = false

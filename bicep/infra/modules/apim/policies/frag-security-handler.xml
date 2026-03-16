@@ -18,7 +18,6 @@
 
         Upstream Dependencies:
         - APIM named values: JWT-Issuer, JWT-OpenIdConfigUrl, JWT-AppRegistrationId (when JWT enabled)
-        - APIM named values: uami-client-id (for managed identity backend auth)
     -->
 
     <!-- Determine authentication method used in request -->
@@ -153,12 +152,6 @@
 
     <!-- Remove api-key header to prevent it from being passed to backend endpoints -->
     <set-header name="api-key" exists-action="delete" />
-
-    <!-- Backend authentication with managed identity for Azure services -->
-    <authentication-managed-identity resource="https://cognitiveservices.azure.com" output-token-variable-name="msi-access-token" client-id="{{uami-client-id}}" ignore-error="false" />
-    <set-header name="Authorization" exists-action="override">
-        <value>@("Bearer " + (string)context.Variables["msi-access-token"])</value>
-    </set-header>
 
     <trace source="Authentication-Complete" severity="information">
         <message>@($"Unified AI - Auth: {context.Variables.GetValueOrDefault<string>("auth-type", "none")} | User: {context.Variables.GetValueOrDefault<string>("user-id", "anonymous")} | Sub: {context.Variables.GetValueOrDefault<string>("subscription-name", "none")}")</message>

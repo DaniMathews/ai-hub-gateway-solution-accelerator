@@ -128,9 +128,10 @@ param enableAzureAISearch = bool(readEnvironmentVariable('ENABLE_AZURE_AI_SEARCH
 param enableAIGatewayPiiRedaction = bool(readEnvironmentVariable('ENABLE_PII_REDACTION', 'true'))
 param enableOpenAIRealtime = bool(readEnvironmentVariable('ENABLE_OPENAI_REALTIME', 'true'))
 param enableAIFoundry = bool(readEnvironmentVariable('ENABLE_AI_FOUNDRY', 'true'))
-param entraAuth = bool(readEnvironmentVariable('AZURE_ENTRA_AUTH', 'false'))
+param entraAuth = bool(readEnvironmentVariable('AZURE_ENTRA_AUTH', 'true'))
 param enableAPICenter = bool(readEnvironmentVariable('ENABLE_API_CENTER', 'false'))
 param enableManagedRedis = bool(readEnvironmentVariable('ENABLE_MANAGED_REDIS', 'true'))
+param enableUnifiedAiApi = bool(readEnvironmentVariable('ENABLE_UNIFIED_AI_API', 'true'))
 
 // ============================================================================
 // INFERENCE API DIAGNOSTIC LOG SETTINGS
@@ -203,6 +204,10 @@ param aiFoundryInstances = [
 ]
 
 // AI Foundry model deployments configuration
+// Each model can optionally include metadata for the Unified AI API routing:
+//   - apiVersion: API version for OpenAI-type requests (default: '2024-02-15-preview')
+//   - timeout: Request timeout in seconds (default: 120)
+//   - inferenceApiVersion: API version for inference-type requests (e.g., '2024-05-01-preview' for non-OpenAI models)
 param aiFoundryModelsConfig = [
   {
     name: 'gpt-4o-mini'
@@ -229,6 +234,8 @@ param aiFoundryModelsConfig = [
     sku: 'GlobalStandard'
     capacity: 100
     retirementDate: '2026-10-14'
+    apiVersion: '2025-04-01-preview'
+    timeout: 180
     aiserviceIndex: 0
   }
   {
@@ -238,6 +245,7 @@ param aiFoundryModelsConfig = [
     sku: 'GlobalStandard'
     capacity: 1
     retirementDate: '2099-12-30'
+    inferenceApiVersion: '2024-05-01-preview'
     aiserviceIndex: 0
   }
   {
@@ -247,6 +255,7 @@ param aiFoundryModelsConfig = [
     sku: 'GlobalStandard'
     capacity: 1
     retirementDate: '2099-12-30'
+    inferenceApiVersion: '2024-05-01-preview'
     aiserviceIndex: 0
   }
   {
@@ -274,6 +283,7 @@ param aiFoundryModelsConfig = [
     sku: 'GlobalStandard'
     capacity: 1
     retirementDate: '2099-12-30'
+    inferenceApiVersion: '2024-05-01-preview'
     aiserviceIndex: 1
   }
   {
@@ -293,6 +303,10 @@ param primaryFoundryEmbeddingModelName = readEnvironmentVariable('PRIMARY_FOUNDR
 // ============================================================================
 // ENTRA ID AUTHENTICATION
 // ============================================================================
+// Values are populated by the entra-id-setup script (bicep/infra/entra-id-setup/setup.ps1)
+// which creates the App Registration and stores values as azd environment variables.
+// For bring-your-own app registrations, set these values directly via 'azd env set'.
 param entraTenantId = readEnvironmentVariable('AZURE_TENANT_ID', '')
 param entraClientId = readEnvironmentVariable('AZURE_CLIENT_ID', '')
 param entraAudience = readEnvironmentVariable('AZURE_AUDIENCE', '')
+param entraClientSecret = readEnvironmentVariable('ENTRA_CLIENT_SECRET', '')

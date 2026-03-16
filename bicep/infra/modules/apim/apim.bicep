@@ -77,7 +77,16 @@ param isMCPSampleDeployed bool = false
  * - backendType: Type of backend ('ai-foundry', 'azure-openai', 'external')
  * - endpoint: Base URL for the backend service
  * - authScheme: Authentication method ('managedIdentity', 'apiKey', 'token')
- * - supportedModels: Array of model names this backend can serve
+ * - supportedModels: Array of model objects with:
+ *     - name: Model name (required)
+ *     - sku: (Optional) SKU name for deployment (default: 'Standard')
+ *     - capacity: (Optional) Capacity/TPM quota (default: 100)
+ *     - modelFormat: (Optional) Model format identifier (default: 'OpenAI')
+ *     - modelVersion: (Optional) Version of the model (default: '1')
+ *     - retirementDate: (Optional) Retirement date in YYYY-MM-DD format
+ *     - apiVersion: (Optional) API version for OpenAI-type requests (default: '2024-02-15-preview')
+ *     - timeout: (Optional) Request timeout in seconds (default: 120)
+ *     - inferenceApiVersion: (Optional) API version for inference-type requests
  * - priority: (Optional) Priority for load balancing (1-5, default 1)
  * - weight: (Optional) Weight for load balancing (1-1000, default 1)
  */
@@ -126,7 +135,7 @@ param enableEmbeddingsBackend bool = false
 @description('Enable the Unified AI Wildcard API (3rd API alongside Azure OpenAI and Universal LLM)')
 param enableUnifiedAiApi bool = true
 
-@description('Enable JWT authentication support for the Unified AI API (creates JWT named values)')
+@description('Enable JWT authentication support across all APIs (creates JWT named values and security-handler fragment)')
 param enableJwtAuth bool = false
 
 @description('JWT Tenant ID (required when enableJwtAuth is true and not using Entra module)')
@@ -456,15 +465,18 @@ module apiUnifiedAI './unified-ai-api.bicep' = if (enableUnifiedAiApi) {
   ]
 }
 
-////// JWT Authentication Named Values (for Unified AI API) /////////////
+////// JWT Authentication Named Values /////////////
+// These named values support JWT authentication across all APIs (Azure OpenAI,
+// Universal LLM, and Unified AI). They are created when enableJwtAuth is true,
+// enabling access contracts to require JWT validation via the security-handler fragment.
 
 var jwtTenantIdValue = !empty(jwtTenantId) ? jwtTenantId : subscription().tenantId
 var jwtAppRegIdValue = !empty(jwtAppRegistrationId) ? jwtAppRegistrationId : 'not-configured'
 
-// JWT named values are always created (even with placeholders when JWT is disabled)
-// because the security-handler fragment references them via {{...}} syntax which is
-// validated at deployment time. The fragment gracefully returns 503 if values are empty.
-resource jwtTenantIdNamedValue 'Microsoft.ApiManagement/service/namedValues@2024-06-01-preview' = if (enableUnifiedAiApi) {
+// JWT named values are created when either JWT auth or Unified AI API is enabled.
+// The security-handler fragment references them via {{...}} syntax; placeholders
+// are used when JWT is disabled so deployment validation passes.
+resource jwtTenantIdNamedValue 'Microsoft.ApiManagement/service/namedValues@2024-06-01-preview' = if (enableJwtAuth || enableUnifiedAiApi) {
   name: 'JWT-TenantId'
   parent: apimService
   properties: {
@@ -473,7 +485,7 @@ resource jwtTenantIdNamedValue 'Microsoft.ApiManagement/service/namedValues@2024
   }
 }
 
-resource jwtAppRegistrationIdNamedValue 'Microsoft.ApiManagement/service/namedValues@2024-06-01-preview' = if (enableUnifiedAiApi) {
+resource jwtAppRegistrationIdNamedValue 'Microsoft.ApiManagement/service/namedValues@2024-06-01-preview' = if (enableJwtAuth || enableUnifiedAiApi) {
   name: 'JWT-AppRegistrationId'
   parent: apimService
   properties: {
@@ -482,7 +494,7 @@ resource jwtAppRegistrationIdNamedValue 'Microsoft.ApiManagement/service/namedVa
   }
 }
 
-resource jwtIssuerNamedValue 'Microsoft.ApiManagement/service/namedValues@2024-06-01-preview' = if (enableUnifiedAiApi) {
+resource jwtIssuerNamedValue 'Microsoft.ApiManagement/service/namedValues@2024-06-01-preview' = if (enableJwtAuth || enableUnifiedAiApi) {
   name: 'JWT-Issuer'
   parent: apimService
   properties: {
@@ -491,7 +503,7 @@ resource jwtIssuerNamedValue 'Microsoft.ApiManagement/service/namedValues@2024-0
   }
 }
 
-resource jwtOpenIdConfigUrlNamedValue 'Microsoft.ApiManagement/service/namedValues@2024-06-01-preview' = if (enableUnifiedAiApi) {
+resource jwtOpenIdConfigUrlNamedValue 'Microsoft.ApiManagement/service/namedValues@2024-06-01-preview' = if (enableJwtAuth || enableUnifiedAiApi) {
   name: 'JWT-OpenIdConfigUrl'
   parent: apimService
   properties: {
@@ -636,7 +648,7 @@ resource apiopenAiApiClientNamedValue 'Microsoft.ApiManagement/service/namedValu
   properties: {
     displayName: openAiApiClientNamedValue
     secret: true
-    value: clientAppId
+    value: !empty(clientAppId) ? clientAppId : 'not-configured'
   }
 }
 resource apiopenAiApiTenantNamedValue 'Microsoft.ApiManagement/service/namedValues@2022-08-01' = {
@@ -645,7 +657,7 @@ resource apiopenAiApiTenantNamedValue 'Microsoft.ApiManagement/service/namedValu
   properties: {
     displayName: openAiApiTenantNamedValue
     secret: true
-    value: tenantId
+    value: !empty(tenantId) ? tenantId : tenant().tenantId
   }
 }
 resource apimOpenaiApiAudienceNamedValue 'Microsoft.ApiManagement/service/namedValues@2022-08-01' =  {
@@ -654,7 +666,7 @@ resource apimOpenaiApiAudienceNamedValue 'Microsoft.ApiManagement/service/namedV
   properties: {
     displayName: openAiApiAudienceNamedValue
     secret: true
-    value: audience
+    value: !empty(audience) ? audience : 'https://cognitiveservices.azure.com/.default'
   }
 }
 
@@ -696,6 +708,7 @@ module policyFragments './policy-fragments.bicep' = {
     enablePIIAnonymization: enablePIIAnonymization
     enableAIModelInference: enableAIModelInference
     enableUnifiedAiApi: enableUnifiedAiApi
+    enableJwtAuth: enableJwtAuth
   }
   dependsOn: [
     apiopenAiApiClientNamedValue
