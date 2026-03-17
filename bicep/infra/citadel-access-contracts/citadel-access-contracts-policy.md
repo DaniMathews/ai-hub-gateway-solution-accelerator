@@ -216,12 +216,15 @@ Content safety can be enforced at a gateway level using the built-in content saf
 
 JWT (JSON Web Token) authentication adds a second security layer on top of subscription API keys. When enabled for a product, clients must provide both an `api-key` header and an `Authorization: Bearer {token}` header.
 
-JWT validation is handled by the unified `security-handler` policy fragment, which is included in **all three API endpoints** (Azure OpenAI API, Universal LLM API, and Unified AI API). The fragment validates tokens against any OAuth 2.0 / OpenID Connect identity provider configured via APIM named values (Microsoft Entra ID, Auth0, Okta, etc.).
+JWT validation is handled by the unified `security-handler` policy fragment, which is included in **all three API endpoints** (Azure OpenAI API, Universal LLM API, and Unified AI API). The fragment validates the token's audience, issuer, signature, and expiry against either gateway-level APIM named values or per-product custom overrides.
+
+> **Full JWT setup guide:** See [JWT Authentication Guide](../../../guides/entraid-auth-validation.md) for gateway-level configuration.
+> **Client identity & permissions:** See [JWT Client Identity and Permissions Guide](../../../guides/jwt-client-identity-permissions.md) for configuring client applications to acquire tokens.
 
 **Prerequisites:**
 - APIM named values configured: `JWT-TenantId`, `JWT-AppRegistrationId`, `JWT-Issuer`, `JWT-OpenIdConfigUrl`
 - For Microsoft Entra ID: Run the `bicep/infra/entra-id-setup` module to auto-provision app registration and named values
-- For other identity providers: Manually configure the APIM named values with the appropriate OpenID Connect discovery endpoint, audience, and issuer
+- For other identity providers: Manually configure the APIM named values or use per-product custom overrides
 
 **APIM Named Values for JWT Configuration:**
 
