@@ -249,16 +249,6 @@ param aiFoundryModelsConfig = [
     aiserviceIndex: 0
   }
   {
-    name: 'Phi-4'
-    publisher: 'Microsoft'
-    version: '3'
-    sku: 'GlobalStandard'
-    capacity: 1
-    retirementDate: '2099-12-30'
-    inferenceApiVersion: '2024-05-01-preview'
-    aiserviceIndex: 0
-  }
-  {
     name: 'text-embedding-3-large'
     publisher: 'OpenAI'
     version: '1'

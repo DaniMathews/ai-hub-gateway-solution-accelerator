@@ -2,7 +2,7 @@
 
 ## Overview
 
-Independent deployment module that creates a Microsoft Entra ID App Registration and **directly configures APIM JWT named values** for JWT authentication with the AI Citadel Governance Hub.
+Independent deployment module that creates a Microsoft Entra ID App Registration and **directly configures APIM JWT named values** for JWT authentication with the Citadel's AI Governance Hub.
 
 This is a **standalone operation** — no redeployment of the main landing zone (`azd up`) is required. After running the setup script, APIM is immediately configured for JWT authentication.
 
@@ -34,7 +34,7 @@ This is a **standalone operation** — no redeployment of the main landing zone 
 
 >NOTE: For Key Vault Access, you can assign the `Key Vault Secrets Officer` role to your user account on the Key Vault. 
 >- The main deployment does not automatically assign this role. The following command show example execution ```az role assignment create --role "Key Vault Secrets Officer" --assignee "REPLACE@TENANT.onmicrosoft.com" --scope (az keyvault show --name kv-REPLACE --query id --output tsv)```
->- Azure Key Vault public network access is disabled by default. Ensure you can access Key Vault from the machine that will run the setup script. You may need to enable public network access temprarily or run the script from a VM with access to the Key Vault.
+>- Azure Key Vault public network access is disabled by default. Ensure you can access Key Vault from the machine that will run the setup script. You may need to enable public network access temporarily or run the script from a VM with access to the Key Vault.
 
 ## Usage
 

@@ -109,7 +109,7 @@ if ([string]::IsNullOrWhiteSpace($ApimName)) {
     }
 }
 
-$AppDisplayName = "ai-hub-gateway-${EnvironmentName}-unified-ai"
+$AppDisplayName = "ai-citadel-gateway-${EnvironmentName}"
 
 Write-Host ""
 Write-Host "═══════════════════════════════════════════════════════════" -ForegroundColor Cyan
