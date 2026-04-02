@@ -250,6 +250,8 @@ Use the following interactive Jupyter notebooks to validate and configure your C
 | [**Citadel Access Contracts Tests**](./validation/citadel-access-contracts-tests.ipynb) | Create 3 different access contracts for 3 use cases with various integration requirements. |
 | [**Citadel Agent Frameworks Tests**](./validation/citadel-agent-frameworks-tests.ipynb) | Activate 3 different access contracts using various agent frameworks (Microsoft Agent Framework, Microsoft Foundry Agent SDK, LangChain) |
 | [**Citadel PII Processing Tests**](./validation/citadel-pii-processing-tests.ipynb) | Test PII detection and masking capabilities within the Citadel Governance Hub. |
+| [**Citadel JWT Authentication Tests**](./validation/citadel-jwt-authentication-tests.ipynb) | Validate JWT-based authentication and app role authorization across all LLM API endpoints, including dual auth flows and negative testing. |
+| [**Citadel Unified AI API Tests**](./validation/citadel-unified-ai-api-tests.ipynb) | Validate the Unified AI Wildcard API across different model providers (Azure OpenAI, Foundry, Gemini) and API patterns with load testing. |
 
 > 💡 **Tip**: These notebooks require Python with the `openai`, `requests`, and `matplotlib` among other packages highlighted in [requirements.txt](./validation/requirements.txt). Ensure you have configured your environment variables before running.
 
@@ -265,6 +267,7 @@ Master AI Citadel Governance Hub implementation and operations with our detailed
 |-------|-------------|
 | [**🆕 Governance Hub Benefits**](./guides/governance-hub-benefits.md) | Detailed benefits and stakeholder value of adopting Citadel Governance Hub |
 | [**🆕 Citadel Sizing Guide**](./guides/citadel-sizing-guide.md) | Guidance on sizing the Citadel Governance Hub based on workloads and environments |
+| [**🆕 PTU Estimation Guide**](./guides/put-estimation-guide.md) | Azure OpenAI / Foundry LLM sizing guide for PTU vs Pay-as-you-Go capacity planning |
 
 ### 🏗️ **Landing zone deployment**
 
@@ -296,6 +299,7 @@ Master AI Citadel Governance Hub implementation and operations with our detailed
 |-------|-------------|
 | [**🆕 PII Detection & Masking**](./guides/pii-masking-apim.md) | Automated sensitive data protection |
 | [**🆕 Entra ID Authentication**](./guides/entraid-auth-validation.md) | JWT validation and Zero Trust implementation |
+| [**🆕 JWT Client Identity & Permissions**](./guides/jwt-client-identity-permissions.md) | Configure client app identities, group-based access management, and permissions for JWT-protected endpoints |
 
 ### 📊 **Observability & Analytics**
 
@@ -308,6 +312,8 @@ Master AI Citadel Governance Hub implementation and operations with our detailed
 | Guide | Description |
 |-------|-------------|
 | [**🆕 LLM Routing Architecture**](./guides/llm-routing-architecture.md) | Technical dive into LLM model and backend routing logic |
+| [**🆕 LLM Backend Onboarding Guide**](./guides/LLM-Backend-Onboarding-Guide.md) | How to onboard LLM backends (Azure OpenAI, Foundry, external providers) with dynamic routing and load balancing |
+| [**🆕 Throttling Events Handling**](./guides/throttling-events-handling.md) | Monitor and handle throttling events per use case, deployment, and other dimensions |
 
 ---
 
