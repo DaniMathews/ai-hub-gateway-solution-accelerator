@@ -176,7 +176,7 @@ param aiContentSafetySkuName = readEnvironmentVariable('AI_CONTENT_SAFETY_SKU_NA
 param apicSku = readEnvironmentVariable('APIC_SKU', 'Free')
 param keyVaultSkuName = readEnvironmentVariable('KEY_VAULT_SKU_NAME', 'standard')
 param redisSkuName = readEnvironmentVariable('REDIS_SKU_NAME', 'Balanced_B1')
-param redisSkuCapacity = int(readEnvironmentVariable('REDIS_SKU_CAPACITY', '2'))
+param redisSkuCapacity = int(readEnvironmentVariable('REDIS_SKU_CAPACITY', '1'))
 
 // ============================================================================
 // ACCELERATOR SPECIFIC PARAMETERS
@@ -209,24 +209,6 @@ param aiFoundryInstances = [
 //   - timeout: Request timeout in seconds (default: 120)
 //   - inferenceApiVersion: API version for inference-type requests (e.g., '2024-05-01-preview' for non-OpenAI models)
 param aiFoundryModelsConfig = [
-  {
-    name: 'gpt-4o-mini'
-    publisher: 'OpenAI'
-    version: '2024-07-18'
-    sku: 'GlobalStandard'
-    capacity: 100
-    retirementDate: '2026-09-30'
-    aiserviceIndex: 0
-  }
-  {
-    name: 'gpt-4o'
-    publisher: 'OpenAI'
-    version: '2024-11-20'
-    sku: 'GlobalStandard'
-    capacity: 100
-    retirementDate: '2026-09-30'
-    aiserviceIndex: 0
-  }
   {
     name: 'gpt-4.1'
     publisher: 'OpenAI'
