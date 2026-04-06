@@ -63,6 +63,18 @@ param updateLLMBackendPools bool = true
 @description('Update LLM policy fragments (set-backend-pools, set-backend-authorization, etc.)')
 param updateLLMPolicyFragments bool = true
 
+@description('Update the Unified AI Wildcard API definition, product, and policy')
+param updateUnifiedAiApi bool = true
+
+@description('Update JWT authentication named values (JWT-TenantId, JWT-AppRegistrationId, JWT-Issuer, JWT-OpenIdConfigUrl)')
+param updateJwtNamedValues bool = true
+
+@description('Update APIM Redis cache entity configuration')
+param updateRedisCache bool = false
+
+@description('Update APIM embeddings backend configuration')
+param updateEmbeddingsBackend bool = false
+
 // =====================================================================
 //    FEATURE-SPECIFIC PARAMETERS
 // =====================================================================
@@ -75,6 +87,18 @@ param enableAIModelInference bool = true
 
 @description('Use Entra ID authentication (disables subscription key requirement on APIs)')
 param entraAuth bool = false
+
+@description('Enable the Unified AI Wildcard API (3rd API alongside Azure OpenAI and Universal LLM)')
+param enableUnifiedAiApi bool = true
+
+@description('Enable JWT authentication support across all APIs (creates JWT named values and security-handler fragment)')
+param enableJwtAuth bool = false
+
+@description('JWT Tenant ID (required when enableJwtAuth is true)')
+param jwtTenantId string = ''
+
+@description('JWT App Registration Client ID (required when enableJwtAuth is true)')
+param jwtAppRegistrationId string = ''
 
 // =====================================================================
 //    NAMED VALUE PARAMETERS
@@ -101,6 +125,29 @@ param contentSafetyServiceUrl string = ''
 
 @description('Configuration array for LLM backends supporting multiple providers and models')
 param llmBackendConfig array = []
+
+// =====================================================================
+//    REDIS CACHE & EMBEDDINGS CONFIGURATION
+// =====================================================================
+
+@description('Enable APIM cache configuration backed by Azure Managed Redis')
+param enableRedisCache bool = false
+
+@secure()
+@description('Runtime connection string to the Azure Managed Redis instance (used for APIM caches)')
+param redisCacheConnectionString string = ''
+
+@description('APIM cache entity name for the Redis-backed cache')
+param apimRedisCacheName string = 'redis-cache'
+
+@description('Enable an APIM backend that targets the AI Foundry embeddings endpoint')
+param enableEmbeddingsBackend bool = false
+
+@description('URL for the AI Foundry embeddings endpoint')
+param embeddingsBackendUrl string = ''
+
+@description('APIM backend ID for the embeddings backend')
+param embeddingsBackendId string = 'foundry-embeddings'
 
 // =====================================================================
 //    AZURE AI SEARCH CONFIGURATION
@@ -268,6 +315,83 @@ resource contentSafetyBackend 'Microsoft.ApiManagement/service/backends@2024-05-
 }
 
 // =====================================================================
+//    JWT AUTHENTICATION NAMED VALUES
+// =====================================================================
+
+var jwtTenantIdValue = !empty(jwtTenantId) ? jwtTenantId : subscription().tenantId
+var jwtAppRegIdValue = !empty(jwtAppRegistrationId) ? jwtAppRegistrationId : 'not-configured'
+
+resource jwtTenantIdNamedValue 'Microsoft.ApiManagement/service/namedValues@2024-06-01-preview' = if (updateJwtNamedValues) {
+  name: 'JWT-TenantId'
+  parent: apimService
+  properties: {
+    displayName: 'JWT-TenantId'
+    value: enableJwtAuth ? jwtTenantIdValue : 'not-configured'
+  }
+}
+
+resource jwtAppRegistrationIdNamedValue 'Microsoft.ApiManagement/service/namedValues@2024-06-01-preview' = if (updateJwtNamedValues) {
+  name: 'JWT-AppRegistrationId'
+  parent: apimService
+  properties: {
+    displayName: 'JWT-AppRegistrationId'
+    value: enableJwtAuth ? jwtAppRegIdValue : 'not-configured'
+  }
+}
+
+resource jwtIssuerNamedValue 'Microsoft.ApiManagement/service/namedValues@2024-06-01-preview' = if (updateJwtNamedValues) {
+  name: 'JWT-Issuer'
+  parent: apimService
+  properties: {
+    displayName: 'JWT-Issuer'
+    value: enableJwtAuth ? '${environment().authentication.loginEndpoint}${jwtTenantIdValue}/v2.0' : 'not-configured'
+  }
+}
+
+resource jwtOpenIdConfigUrlNamedValue 'Microsoft.ApiManagement/service/namedValues@2024-06-01-preview' = if (updateJwtNamedValues) {
+  name: 'JWT-OpenIdConfigUrl'
+  parent: apimService
+  properties: {
+    displayName: 'JWT-OpenIdConfigUrl'
+    value: enableJwtAuth ? '${environment().authentication.loginEndpoint}${jwtTenantIdValue}/v2.0/.well-known/openid-configuration' : 'not-configured'
+  }
+}
+
+// =====================================================================
+//    REDIS CACHE & EMBEDDINGS BACKEND
+// =====================================================================
+
+resource redisCache 'Microsoft.ApiManagement/service/caches@2024-06-01-preview' = if (updateRedisCache && enableRedisCache) {
+  name: apimRedisCacheName
+  parent: apimService
+  properties: {
+    connectionString: redisCacheConnectionString
+    useFromLocation: 'default'
+    description: 'Azure Managed Redis cache for APIM Semantic Cache'
+  }
+}
+
+resource embeddingsBackend 'Microsoft.ApiManagement/service/backends@2024-06-01-preview' = if (updateEmbeddingsBackend && enableEmbeddingsBackend) {
+  name: embeddingsBackendId
+  parent: apimService
+  properties: {
+    description: 'AI Foundry embeddings backend'
+    url: embeddingsBackendUrl
+    protocol: 'http'
+    credentials: {
+      managedIdentity: {
+        clientId: managedIdentity.properties.clientId
+        resource: 'https://cognitiveservices.azure.com'
+      }
+    }
+    tls: {
+      validateCertificateChain: true
+      validateCertificateName: true
+    }
+  }
+}
+
+// =====================================================================
 //    POLICY FRAGMENTS (static — from policy-fragments.bicep)
 // =====================================================================
 
@@ -277,7 +401,7 @@ module policyFragments '../modules/apim/policy-fragments.bicep' = if (updatePoli
     apimServiceName: apimService.name
     enablePIIAnonymization: enablePIIAnonymization
     enableAIModelInference: enableAIModelInference
-    enableJwtAuth: entraAuth
+    enableUnifiedAiApi: enableUnifiedAiApi
   }
   dependsOn: [
     clientIdNamedValue
@@ -286,6 +410,10 @@ module policyFragments '../modules/apim/policy-fragments.bicep' = if (updatePoli
     tenantIdNamedValue
     piiServiceUrlNamedValue
     piiServiceKeyNamedValue
+    jwtTenantIdNamedValue
+    jwtAppRegistrationIdNamedValue
+    jwtIssuerNamedValue
+    jwtOpenIdConfigUrlNamedValue
   ]
 }
 
@@ -380,6 +508,26 @@ module apimOpenaiApi '../modules/apim/inference-api.bicep' = if (updateAzureOpen
     policyXml: loadTextContent('../modules/apim/policies/azure-open-ai-api-policy.xml')
     azureMonitorLogSettings: azureMonitorLogSettings
     appInsightsLogSettings: appInsightsLogSettings
+  }
+  dependsOn: [
+    policyFragments
+    llmBackends
+    llmBackendPools
+    llmPolicyFragments
+  ]
+}
+
+// =====================================================================
+//    APIs — Unified AI Wildcard API
+// =====================================================================
+
+module apiUnifiedAI '../modules/apim/unified-ai-api.bicep' = if (updateUnifiedAiApi) {
+  name: 'unified-ai-api-upgrade'
+  params: {
+    apiManagementName: apimService.name
+    enabled: enableUnifiedAiApi
+    apimLoggerId: azMonitorLogger.id
+    azureMonitorLogSettings: azureMonitorLogSettings
   }
   dependsOn: [
     policyFragments

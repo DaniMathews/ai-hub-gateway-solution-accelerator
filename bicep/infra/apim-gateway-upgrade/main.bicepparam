@@ -8,43 +8,19 @@ param apimServiceName = '<your-apim-service-name>'
 param managedIdentityName = '<your-managed-identity-name>'
 
 // =====================================================================
-//    FEATURE FLAGS — Toggle which configuration sections to apply
-//    Set to true to update, false to skip
+//    POLICY FRAGMENTS
 // =====================================================================
 
-// Policy Fragments
 param updatePolicyFragments = true
-
-// APIs
-param updateUniversalLLMApi = true
-param updateAzureOpenAIApi = true
-param updateAzureAISearchApi = false
-param updateOpenAIRealtimeApi = false
-param updateDocumentIntelligenceApi = false
-
-// LLM Backends & Pools
-param updateLLMBackends = true
-param updateLLMBackendPools = true
-param updateLLMPolicyFragments = true
-
-// Logging / Diagnostics
-param updateAppInsightsDiagnostics = true
-
-// Named Values
-param updateNamedValues = true
-
-// =====================================================================
-//    FEATURE-SPECIFIC PARAMETERS
-// =====================================================================
-
 param enablePIIAnonymization = true
 param enableAIModelInference = true
+
+// =====================================================================
+//    NAMED VALUES (auth, Entra, PII, Content Safety)
+// =====================================================================
+
+param updateNamedValues = true
 param entraAuth = false
-
-// =====================================================================
-//    NAMED VALUE PARAMETERS
-// =====================================================================
-
 param clientAppId = ' '
 // param tenantId — defaults to current tenant
 param audience = 'https://cognitiveservices.azure.com/.default'
@@ -52,11 +28,24 @@ param aiLanguageServiceUrl = ''
 param contentSafetyServiceUrl = ''
 
 // =====================================================================
-//    LLM BACKEND CONFIGURATION
+//    JWT AUTHENTICATION NAMED VALUES
+//    Required when enableJwtAuth = true
+// =====================================================================
+
+param updateJwtNamedValues = true
+param enableJwtAuth = false
+param jwtTenantId = ''
+param jwtAppRegistrationId = ''
+
+// =====================================================================
+//    LLM BACKENDS, POOLS & DYNAMIC POLICY FRAGMENTS
 //    Define all LLM backends and their supported models.
 //    Uncomment and configure the array below to match your environment.
 // =====================================================================
 
+param updateLLMBackends = true
+param updateLLMBackendPools = true
+param updateLLMPolicyFragments = true
 param llmBackendConfig = [
   // Example: Azure OpenAI backend
   // {
@@ -85,9 +74,24 @@ param llmBackendConfig = [
 ]
 
 // =====================================================================
-//    AI SEARCH INSTANCES (only used when updateAzureAISearchApi = true)
+//    INFERENCE APIs — Universal LLM & Azure OpenAI
 // =====================================================================
 
+param updateUniversalLLMApi = true
+param updateAzureOpenAIApi = true
+
+// =====================================================================
+//    UNIFIED AI WILDCARD API
+// =====================================================================
+
+param updateUnifiedAiApi = true
+param enableUnifiedAiApi = true
+
+// =====================================================================
+//    AZURE AI SEARCH API
+// =====================================================================
+
+param updateAzureAISearchApi = false
 param aiSearchInstances = [
   // {
   //   name: 'my-search-instance'
@@ -97,9 +101,36 @@ param aiSearchInstances = [
 ]
 
 // =====================================================================
+//    OPENAI REALTIME WEBSOCKET API
+// =====================================================================
+
+param updateOpenAIRealtimeApi = false
+
+// =====================================================================
+//    DOCUMENT INTELLIGENCE APIs
+// =====================================================================
+
+param updateDocumentIntelligenceApi = false
+
+// =====================================================================
+//    REDIS CACHE & EMBEDDINGS BACKEND
+//    Required when updateRedisCache or updateEmbeddingsBackend = true
+// =====================================================================
+
+param updateRedisCache = false
+param enableRedisCache = false
+param redisCacheConnectionString = ''
+
+param updateEmbeddingsBackend = false
+param enableEmbeddingsBackend = false
+param embeddingsBackendUrl = ''
+
+// =====================================================================
 //    LOGGING / DIAGNOSTICS SETTINGS
 //    Customize what is captured in Application Insights and Azure Monitor.
 // =====================================================================
+
+param updateAppInsightsDiagnostics = true
 
 param azureMonitorLogSettings = {
   frontend: {

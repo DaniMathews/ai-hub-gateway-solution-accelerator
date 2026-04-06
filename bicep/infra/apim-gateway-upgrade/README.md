@@ -12,11 +12,13 @@ Notes:
 
 | Category | Resources Updated |
 |---|---|
-| **Policy Fragments** | All static fragments (auth, usage, throttling, PII, AI Foundry) and dynamic LLM fragments (backend pools, authorization, target routing, model access) |
-| **APIs** | Universal LLM API, Azure OpenAI API, Azure AI Search API, OpenAI Realtime WebSocket API, Document Intelligence APIs — including OpenAPI specs, API-level policies, and operation-level policies |
+| **Policy Fragments** | All static fragments (auth, usage, throttling, PII, AI Foundry, Unified AI) and dynamic LLM fragments (backend pools, authorization, target routing, model access) |
+| **APIs** | Universal LLM API, Azure OpenAI API, Unified AI Wildcard API, Azure AI Search API, OpenAI Realtime WebSocket API, Document Intelligence APIs — including OpenAPI specs, API-level policies, and operation-level policies |
 | **LLM Backends** | Backend definitions, backend pools, and associated policy fragments for dynamic model routing |
-| **Named Values** | UAMI client ID, Entra auth flag, client/tenant/audience, PII service URL/key, Content Safety URL |
+| **Named Values** | UAMI client ID, Entra auth flag, client/tenant/audience, PII service URL/key, Content Safety URL, JWT authentication values (TenantId, AppRegistrationId, Issuer, OpenIdConfigUrl) |
 | **Logging / Diagnostics** | APIM-level Application Insights diagnostic configuration and per-API Azure Monitor diagnostic configuration |
+| **Redis Cache** | APIM cache entity backed by Azure Managed Redis (for semantic caching) |
+| **Embeddings Backend** | APIM backend targeting AI Foundry embeddings endpoint (for semantic caching) |
 
 ## What this deployment does NOT do
 
@@ -27,6 +29,7 @@ Notes:
 - Deploy sample MCP servers
 - Modify networking, VNet, or private endpoint settings
 - Create managed identities, Key Vaults, or other infrastructure
+- Provision Azure Managed Redis (the Redis instance must already exist for cache updates)
 
 ## Prerequisites
 
@@ -57,9 +60,10 @@ Enable or disable individual configuration sections by setting the feature flag 
 param updatePolicyFragments = true
 param updateUniversalLLMApi = false
 param updateAzureOpenAIApi = false
+param updateUnifiedAiApi = false
 param updateAppInsightsDiagnostics = true
-param updateAzureMonitorDiagnostics = true
 param updateNamedValues = false
+param updateJwtNamedValues = false
 ```
 
 ### 3. Configure LLM Backends
@@ -87,11 +91,7 @@ param llmBackendConfig = [
 Run the deployment scoped to the resource group containing the APIM instance:
 
 ```bash
-az deployment group create \
-  --name gateway-upgrade-$(date +%Y%m%d%H%M) \
-  --resource-group <your-resource-group> \
-  --template-file main.bicep \
-  --parameters main.bicepparam
+az deployment group create --name gateway-upgrade-$(date +%Y%m%d%H%M) --resource-group <your-resource-group> --template-file main.bicep --parameters main.bicepparam
 ```
 
 ## When to use this
@@ -104,6 +104,9 @@ az deployment group create \
 | Tuning Application Insights or Azure Monitor log capture | **Yes** |
 | Updating named values (audience, PII URL, Content Safety URL) | **Yes** |
 | Adding a new LLM backend or model to existing pools | **Yes** |
+| Updating JWT authentication configuration | **Yes** |
+| Updating Unified AI Wildcard API | **Yes** |
+| Updating Redis cache or embeddings backend config | **Yes** |
 | Initial environment provisioning | No — use `bicep/infra/main.bicep` |
 | Changing APIM SKU, networking, or VNet configuration | No — use `bicep/infra/main.bicep` |
 | Adding Event Hub loggers | No — use `bicep/infra/main.bicep` |
@@ -125,14 +128,18 @@ az deployment group create \
 | `updatePolicyFragments` | `true` | Update static policy fragments |
 | `updateUniversalLLMApi` | `true` | Update Universal LLM API spec and policy |
 | `updateAzureOpenAIApi` | `true` | Update Azure OpenAI API spec and policy |
+| `updateUnifiedAiApi` | `true` | Update Unified AI Wildcard API, product, and policy |
 | `updateAzureAISearchApi` | `false` | Update Azure AI Search API spec and policy |
 | `updateOpenAIRealtimeApi` | `false` | Update OpenAI Realtime WebSocket API |
 | `updateDocumentIntelligenceApi` | `false` | Update Document Intelligence APIs |
 | `updateAppInsightsDiagnostics` | `true` | Update APIM-level App Insights diagnostics |
 | `updateNamedValues` | `true` | Update APIM named values |
+| `updateJwtNamedValues` | `true` | Update JWT authentication named values |
 | `updateLLMBackends` | `true` | Update LLM backend definitions |
 | `updateLLMBackendPools` | `true` | Update LLM backend pools |
 | `updateLLMPolicyFragments` | `true` | Update dynamic LLM policy fragments |
+| `updateRedisCache` | `false` | Update APIM Redis cache entity |
+| `updateEmbeddingsBackend` | `false` | Update APIM embeddings backend |
 
 ### Feature-Specific Parameters
 
@@ -141,6 +148,12 @@ az deployment group create \
 | `enablePIIAnonymization` | `true` | Enable PII anonymization policy fragments |
 | `enableAIModelInference` | `true` | Enable AI model inference fragments |
 | `entraAuth` | `false` | Use Entra ID auth (disables subscription keys) |
+| `enableUnifiedAiApi` | `true` | Enable the Unified AI Wildcard API |
+| `enableJwtAuth` | `false` | Enable JWT authentication named values and security-handler fragment |
+| `jwtTenantId` | `''` | JWT Tenant ID (required when `enableJwtAuth` is true) |
+| `jwtAppRegistrationId` | `''` | JWT App Registration Client ID (required when `enableJwtAuth` is true) |
+| `enableRedisCache` | `false` | Enable APIM Redis cache entity (requires `redisCacheConnectionString`) |
+| `enableEmbeddingsBackend` | `false` | Enable APIM embeddings backend (requires `embeddingsBackendUrl`) |
 
 ### Logging Settings
 
