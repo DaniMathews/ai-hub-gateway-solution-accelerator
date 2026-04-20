@@ -55,6 +55,11 @@
                 'base-path': '/models',
                 'path-segment': '/models',
                 'api-version': '2024-05-01-preview'
+            },
+            'bedrock': {
+                'base-path': '/model',
+                'path-segment': '/model',
+                'api-version': 'bedrock-2024-04-15'
             }
         },
         'cache-settings': {

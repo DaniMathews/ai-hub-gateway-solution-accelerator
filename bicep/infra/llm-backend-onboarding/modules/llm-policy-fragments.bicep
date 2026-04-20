@@ -23,6 +23,17 @@ param managedIdentityClientId string
 @description('LLM backend configuration with model metadata for available models response')
 param llmBackendConfig array = []
 
+@description('AWS access key ID for Amazon Bedrock authentication (required when using aws-bedrock backends)')
+@secure()
+param awsAccessKey string = 'NA'
+
+@description('AWS secret access key for Amazon Bedrock authentication (required when using aws-bedrock backends)')
+@secure()
+param awsSecretKey string = 'NA'
+
+@description('AWS region for Amazon Bedrock (e.g., us-east-1)')
+param awsRegion string = 'NA'
+
 // ------------------
 //    VARIABLES
 // ------------------
@@ -92,6 +103,39 @@ resource uamiClientIdNamedValue 'Microsoft.ApiManagement/service/namedValues@202
   }
 }
 
+// Named values for AWS Bedrock authentication
+// Always created with safe defaults so the policy fragment compiles even when no aws-bedrock backends are configured.
+// When aws-bedrock backends are present, the caller must supply real credentials via parameters.
+resource awsAccessKeyNamedValue 'Microsoft.ApiManagement/service/namedValues@2024-06-01-preview' = {
+  name: 'aws-access-key'
+  parent: apimService
+  properties: {
+    displayName: 'aws-access-key'
+    value: !empty(awsAccessKey) ? awsAccessKey : 'NOT_CONFIGURED'
+    secret: true
+  }
+}
+
+resource awsSecretKeyNamedValue 'Microsoft.ApiManagement/service/namedValues@2024-06-01-preview' = {
+  name: 'aws-secret-key'
+  parent: apimService
+  properties: {
+    displayName: 'aws-secret-key'
+    value: !empty(awsSecretKey) ? awsSecretKey : 'NOT_CONFIGURED'
+    secret: true
+  }
+}
+
+resource awsRegionNamedValue 'Microsoft.ApiManagement/service/namedValues@2024-06-01-preview' = {
+  name: 'aws-region'
+  parent: apimService
+  properties: {
+    displayName: 'aws-region'
+    value: !empty(awsRegion) ? awsRegion : 'NOT_CONFIGURED'
+    secret: false
+  }
+}
+
 // Policy Fragment: Set Backend Pools
 resource setBackendPoolsFragment 'Microsoft.ApiManagement/service/policyFragments@2024-06-01-preview' = {
   name: 'set-backend-pools'
@@ -107,6 +151,11 @@ resource setBackendPoolsFragment 'Microsoft.ApiManagement/service/policyFragment
 resource setBackendAuthorizationFragment 'Microsoft.ApiManagement/service/policyFragments@2024-06-01-preview' = {
   name: 'set-backend-authorization'
   parent: apimService
+  dependsOn: [
+    awsAccessKeyNamedValue
+    awsSecretKeyNamedValue
+    awsRegionNamedValue
+  ]
   properties: {
     description: 'Authentication and routing configuration for different LLM backend types'
     format: 'rawxml'

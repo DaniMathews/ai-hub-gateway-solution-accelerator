@@ -1,0 +1,386 @@
+# Onboarding New API Types to the Unified AI API
+
+## Overview
+
+The Unified AI API uses a modular, fragment-based architecture that supports adding new LLM provider API types without modifying the core routing logic. Each API type is defined by a set of configurations and policy rules that control:
+
+- **Path detection**: How the gateway recognizes which API type a request targets
+- **Model extraction**: How the requested model is identified from the request
+- **Path construction**: How the backend URI is built for the target provider
+- **Authentication**: How credentials are set for the backend provider
+
+This guide walks through every step required to add a new API type, using **Amazon Bedrock** as a concrete example.
+
+## Architecture Context
+
+The Unified AI API handles all request patterns through a single wildcard endpoint (`/unified-ai/*`). The routing flow is:
+
+```
+Client Request → Request Processor (detect API type + extract model)
+              → Security Handler (authenticate client)
+              → Backend Pool Selection (find target backend)
+              → Backend Authorization (authenticate to backend)
+              → Path Builder (construct backend URI)
+              → Forward to Backend
+```
+
+Each step uses APIM policy fragments. Adding a new API type requires updates to specific fragments and configuration files.
+
+## Prerequisites
+
+Before starting, ensure you have:
+
+- A working deployment of AI Citadel Governance Hub with the Unified AI API
+- Understanding of the target provider's API format (endpoint URLs, auth mechanism, request/response format)
+- Access to deploy Bicep templates to your APIM instance
+
+## Step-by-Step Guide
+
+### Step 1: Define the API Type in Metadata Configuration
+
+The `metadata-config` fragment is the central configuration that defines all supported API types. Each API type needs three properties:
+
+| Property | Description |
+|----------|-------------|
+| `base-path` | The URL path prefix that identifies this API type in incoming requests |
+| `path-segment` | The path segment used for model extraction from the URL |
+| `api-version` | Default API version sent to the backend |
+
+**File**: `bicep/infra/llm-backend-onboarding/modules/policies/frag-metadata-config.xml`
+(also mirrored in `bicep/infra/modules/apim/policies/frag-metadata-config.xml`)
+
+#### How It Works
+
+The `request-processor` fragment iterates over all entries in `api-types` and matches the incoming request path against each `base-path`. The first match determines the API type.
+
+#### Adding Your API Type
+
+Add a new entry to the `api-types` object in the metadata config. The key is your API type identifier (used throughout all fragments).
+
+**Example — Adding Amazon Bedrock:**
+
+```json
+'bedrock': {
+    'base-path': '/model',
+    'path-segment': '/model',
+    'api-version': 'bedrock-2024-04-15'
+}
+```
+
+#### Important Considerations
+
+1. **Ordering matters for path matching**: The `request-processor` uses `path.Contains(basePath)` to match. If your `base-path` is a substring of another API type's path (e.g., `/model` vs `/models`), place the **longer path first** in the configuration. The current ordering ensures `/models` (inference) is checked before `/model` (bedrock) because the matching picks the first match found.
+
+2. **The `base-path` must be unique**: No two API types should share the same base-path prefix to avoid ambiguous routing.
+
+3. **Optional `backend` property**: If your API type should always route to a specific backend (bypassing model-based pool routing), add a `backend` property:
+   ```json
+   'my-api-type': {
+       'base-path': '/my-path',
+       'path-segment': '/my-path',
+       'api-version': '2024-01-01',
+       'backend': 'my-specific-backend-id'
+   }
+   ```
+   This sets `apiTypeOverrideBackend` in the request processor, which tells `set-target-backend-pool` to skip pool matching.
+
+4. **Both copies must be updated**: The metadata config exists in two locations:
+   - `bicep/infra/llm-backend-onboarding/modules/policies/frag-metadata-config.xml` — Used when deploying via the LLM backend onboarding module
+   - `bicep/infra/modules/apim/policies/frag-metadata-config.xml` — Used when deploying the full Citadel infrastructure
+
+### Step 2: Add Path Construction Logic
+
+The `path-builder` fragment reconstructs the backend URI based on the detected API type. You need to add a `<when>` condition for your new API type.
+
+**File**: `bicep/infra/modules/apim/policies/frag-path-builder.xml`
+
+#### How It Works
+
+The path builder uses a `<choose>` block to select path construction logic based on the `api-type` variable (set by request-processor). It sets the `finalPath` variable, which is then used to rewrite the request URI.
+
+#### Available Variables
+
+| Variable | Source | Description |
+|----------|--------|-------------|
+| `api-type` | request-processor | The detected API type identifier |
+| `api-base-path` | request-processor | The base path from metadata config |
+| `requestedModel` | request-processor | The extracted model name |
+| `response-id` | request-processor | Response ID (for responses API) |
+| `selected-api-version` | request-processor | API version for the request |
+
+#### Adding Your Path Logic
+
+Add a new `<when>` block inside the `<choose>` element, before the default `<otherwise>` block.
+
+**Example — Amazon Bedrock path (`/model/{model}/converse`):**
+
+```xml
+<!-- Amazon Bedrock: /model/{model}/converse -->
+<when condition="@(context.Variables.GetValueOrDefault<string>("api-type", "").Equals("bedrock", StringComparison.OrdinalIgnoreCase))">
+    <set-variable name="finalPath" value="@{
+        var modelId = context.Variables.GetValueOrDefault<string>("requestedModel", String.Empty);
+        return !String.IsNullOrEmpty(modelId) ? $"/model/{System.Uri.EscapeDataString(modelId)}/converse" : String.Empty;
+    }" />
+</when>
+```
+
+#### Path Pattern Reference
+
+| Pattern | When to Use | Example |
+|---------|-------------|---------|
+| `{base-path}/chat/completions` | OpenAI-compatible APIs | Gemini, Inference |
+| `{base-path}/deployments/{model}/chat/completions` | Deployment-based APIs | Azure OpenAI |
+| `{base-path}` or `{base-path}/{id}` | Resource-based APIs | Responses API |
+| `/model/{model}/converse` | Provider-specific paths | Amazon Bedrock |
+
+#### Additional Behaviors
+
+Your path builder block can also:
+- **Set query parameters**: Use `<set-query-parameter>` to inject API version or other params
+- **Modify the request body**: Use `<set-body>` to add/transform fields (e.g., inject `model` field)
+- **URL-encode model IDs**: Use `System.Uri.EscapeDataString()` for models with special characters (e.g., Bedrock's `us.anthropic.claude-3-5-haiku-20241022-v1:0`)
+
+### Step 3: Add Backend Authentication
+
+The `set-backend-authorization` fragment configures how APIM authenticates to each backend type. If your new API type uses a different authentication mechanism than the existing ones, you need to add a new `<when>` block.
+
+**Files** (both must be updated):
+- `bicep/infra/llm-backend-onboarding/modules/policies/frag-set-backend-authorization.xml`
+- `bicep/infra/modules/apim/policies/frag-set-backend-authorization.xml`
+
+#### Existing Auth Patterns
+
+| Backend Type | Auth Mechanism | Implementation |
+|--------------|----------------|----------------|
+| `ai-foundry` | Azure Managed Identity | `<authentication-managed-identity>` with Cognitive Services scope |
+| `azure-openai` | Azure Managed Identity | Same as ai-foundry + URL rewriting |
+| `external` | Backend credentials | No auth header (credentials configured on backend resource) |
+| `aws-bedrock` | AWS SigV4 | Custom policy computing HMAC-SHA256 signature |
+
+#### Adding Your Auth Logic
+
+Add a new `<when>` block that matches on `targetPoolType` (which comes from the `backendType` in your backend configuration).
+
+**Example — AWS SigV4 for Amazon Bedrock:**
+
+The AWS Signature Version 4 authentication requires:
+1. Computing a SHA-256 hash of the request body
+2. Constructing a canonical request string
+3. Deriving a signing key from the secret key + date + region + service
+4. Computing an HMAC-SHA256 signature
+5. Setting the `Authorization`, `X-Amz-Date`, `X-Amz-Content-Sha256`, and `Host` headers
+
+The full implementation uses APIM named values for credentials:
+- `aws-access-key`: AWS IAM access key ID
+- `aws-secret-key`: AWS IAM secret access key
+- `aws-region`: AWS region (e.g., `us-east-1`)
+
+See the [Microsoft Learn guide on Amazon Bedrock APIM integration](https://learn.microsoft.com/en-us/azure/api-management/amazon-bedrock-passthrough-llm-api) for the complete SigV4 policy implementation.
+
+#### Named Values for Credentials
+
+If your auth mechanism requires secrets (API keys, tokens), store them as APIM named values:
+
+1. **Add parameters** to `llm-policy-fragments.bicep` for the credentials
+2. **Create named value resources** conditionally (only when backends of your type exist)
+3. **Reference in policy** using `{{named-value-name}}` syntax
+
+**Example — Adding AWS named values in Bicep:**
+
+```bicep
+// In llm-policy-fragments.bicep
+
+// Parameters
+@secure()
+param awsAccessKey string = ''
+@secure()
+param awsSecretKey string = ''
+param awsRegion string = ''
+
+// Check if any backend uses this type
+var hasBedrockBackend = length(filter(llmBackendConfig, config => config.backendType == 'aws-bedrock')) > 0
+
+// Always create named values (with safe defaults) so the policy fragment compiles
+// even when no backends of this type are configured.
+resource awsAccessKeyNamedValue 'Microsoft.ApiManagement/service/namedValues@2024-06-01-preview' = {
+  name: 'aws-access-key'
+  parent: apimService
+  properties: {
+    displayName: 'aws-access-key'
+    value: !empty(awsAccessKey) ? awsAccessKey : 'NOT_CONFIGURED'
+    secret: true
+  }
+}
+```
+
+> **Important**: APIM resolves `{{named-value}}` references at policy save/compile time, not at runtime. If a named value doesn't exist in APIM, the policy fragment deployment will fail. Always create the named values — even with placeholder defaults — and add a runtime guard in the policy to return a clear error when the placeholder is detected. For example:
+> ```xml
+> <choose>
+>     <when condition="@("{{aws-access-key}}" == "NOT_CONFIGURED")">
+>         <return-response>
+>             <set-status code="500" reason="Internal Server Error" />
+>             <set-body>{"error": {"code": "AWSCredentialsNotConfigured", ...}}</set-body>
+>         </return-response>
+>     </when>
+> </choose>
+> ```
+
+### Step 4: Configure the Backend in LLM Onboarding
+
+Add your backend to the `llmBackendConfig` array in your `.bicepparam` file with a new `backendType` value.
+
+**File**: Your deployment parameter file (e.g., `llm-backends-dev-local.bicepparam`)
+
+#### Backend Configuration Properties
+
+| Property | Value for Your API Type |
+|----------|------------------------|
+| `backendId` | Unique identifier (e.g., `bedrock-us-east-1`) |
+| `backendType` | Your new type identifier (e.g., `aws-bedrock`) — must match the `targetPoolType` in auth fragment |
+| `endpoint` | Base URL of the provider (e.g., `https://bedrock-runtime.us-east-1.amazonaws.com`) |
+| `authScheme` | Authentication scheme (e.g., `awsSigV4`, `managedIdentity`, `apiKey`) |
+| `supportedModels` | Array of model definitions with metadata |
+
+**Example — Amazon Bedrock backend:**
+
+```bicep
+param llmBackendConfig = [
+  {
+    backendId: 'bedrock-us-east-1'
+    backendType: 'aws-bedrock'
+    endpoint: 'https://bedrock-runtime.us-east-1.amazonaws.com'
+    authScheme: 'awsSigV4'
+    supportedModels: [
+      {
+        "name": "us.anthropic.claude-3-5-haiku-20241022-v1:0"
+        "sku": "OnDemand"
+        "capacity": 1
+        "modelFormat": "Anthropic"
+        "modelVersion": "1"
+        "retirementDate": "2099-12-30"
+      }
+      {
+        "name": "us.anthropic.claude-3-5-sonnet-20241022-v2:0"
+        "sku": "OnDemand"
+        "capacity": 1
+        "modelFormat": "Anthropic"
+        "modelVersion": "2"
+        "retirementDate": "2099-12-30"
+      }
+    ]
+    priority: 1
+    weight: 100
+  }
+]
+
+// AWS credentials (required for aws-bedrock backends)
+param awsAccessKey = '<your-aws-access-key-id>'
+param awsSecretKey = '<your-aws-secret-access-key>'
+param awsRegion = 'us-east-1'
+```
+
+#### Pass-Through Parameters
+
+Ensure the new parameters flow through the module chain:
+
+1. **`main.bicep`** — Add parameters and pass to `llmPolicyFragments` module
+2. **`modules/llm-policy-fragments.bicep`** — Accept parameters and create named values
+3. **`modules/llm-backends.bicep`** — No changes needed (backend creation is generic)
+4. **`modules/llm-backend-pools.bicep`** — No changes needed (pool creation is generic)
+
+### Step 5: Deploy and Test
+
+#### Deploy
+
+```bash
+az deployment sub create \
+  --name llm-backend-onboarding \
+  --location <location> \
+  --template-file main.bicep \
+  --parameters llm-backends-dev-local.bicepparam
+```
+
+#### Verify Configuration
+
+1. **Check APIM backends**: Verify the new backend resource was created in the Azure Portal under API Management → Backends
+2. **Check named values**: Verify credential named values were created (e.g., `aws-access-key`, `aws-secret-key`, `aws-region`)
+3. **Check policy fragments**: Verify `metadata-config` fragment includes your new API type and model mappings
+
+#### Test the Endpoint
+
+Send a request through the Unified AI API using your new API type's path pattern:
+
+```bash
+curl -X POST "https://<apim-gateway>/unified-ai/model/us.anthropic.claude-3-5-haiku-20241022-v1:0/converse" \
+  -H "Content-Type: application/json" \
+  -H "api-key: <subscription-key>" \
+  -d '{
+    "messages": [
+      {
+        "role": "user",
+        "content": [{"text": "Hello"}]
+      }
+    ],
+    "inferenceConfig": {
+      "maxTokens": 512,
+      "temperature": 0.5
+    }
+  }'
+```
+
+#### Debug with Response Headers
+
+Enable debug headers in your product policy to trace routing decisions:
+
+```xml
+<set-variable name="enableResponseHeaders" value="true" />
+```
+
+Then check the response headers:
+
+| Header | Expected Value |
+|--------|---------------|
+| `UAIG-API-Type` | `bedrock` |
+| `UAIG-Model-Id` | `us.anthropic.claude-3-5-haiku-20241022-v1:0` |
+| `UAIG-Backend` | `bedrock-us-east-1` |
+| `UAIG-Final-Path` | `/model/us.anthropic.claude-3-5-haiku-20241022-v1%3A0/converse` |
+
+## Summary of Files to Modify
+
+| File | Change | Required |
+|------|--------|----------|
+| `llm-backend-onboarding/modules/policies/frag-metadata-config.xml` | Add API type definition | Yes |
+| `modules/apim/policies/frag-metadata-config.xml` | Add API type definition (mirror) | Yes |
+| `modules/apim/policies/frag-path-builder.xml` | Add path construction logic | Yes |
+| `llm-backend-onboarding/modules/policies/frag-set-backend-authorization.xml` | Add auth logic for new backend type | If new auth needed |
+| `modules/apim/policies/frag-set-backend-authorization.xml` | Add auth logic (mirror) | If new auth needed |
+| `llm-backend-onboarding/modules/llm-policy-fragments.bicep` | Add credential parameters and named values | If new credentials needed |
+| `llm-backend-onboarding/main.bicep` | Pass through new parameters | If new credentials needed |
+| Your `.bicepparam` file | Add backend configuration | Yes |
+
+## Checklist
+
+- [ ] API type added to `frag-metadata-config.xml` (both copies)
+- [ ] `base-path` is unique and doesn't conflict with existing API types
+- [ ] Path builder logic added to `frag-path-builder.xml`
+- [ ] Backend auth logic added to `frag-set-backend-authorization.xml` (both copies, if new auth type)
+- [ ] Named values created for credentials (if applicable)
+- [ ] Parameters passed through `main.bicep` → `llm-policy-fragments.bicep`
+- [ ] Backend configured in `.bicepparam` with correct `backendType`
+- [ ] Models listed in `supportedModels` with appropriate metadata
+- [ ] Deployment tested with debug headers enabled
+- [ ] Documentation updated (routing architecture guide, backend onboarding README)
+
+## Example: Complete Bedrock Onboarding
+
+For a complete working example of onboarding Amazon Bedrock as a new API type, see:
+
+- **Backend Configuration**: [LLM Backend Onboarding README](../bicep/infra/llm-backend-onboarding/README.md#amazon-bedrock-backend) — Amazon Bedrock backend example
+- **Routing Architecture**: [LLM Routing Architecture Guide](llm-routing-architecture.md) — Bedrock request flow and path construction
+- **APIM Integration**: [Microsoft Learn: Amazon Bedrock APIM Integration](https://learn.microsoft.com/en-us/azure/api-management/amazon-bedrock-passthrough-llm-api) — AWS SigV4 authentication policy details
+
+## Related Guides
+
+- [LLM Routing Architecture](llm-routing-architecture.md) - Complete routing flow documentation
+- [LLM Backend Onboarding](../bicep/infra/llm-backend-onboarding/README.md) - Backend configuration reference
+- [Parameters Usage Guide](parameters-usage-guide.md) - Parameter file configuration

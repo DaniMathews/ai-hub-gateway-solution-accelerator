@@ -1059,9 +1059,6 @@ module apim './modules/apim/apim.bicep' = {
     dnsSubscriptionId: !empty(dnsSubscriptionId) ? dnsSubscriptionId : subscription().subscriptionId
     dnsZoneResourceId: existingApimGatewayDnsZoneId
     isMCPSampleDeployed: true
-    enableAPICenter: enableAPICenter
-    apiCenterServiceName: enableAPICenter ? apiCenter.outputs.name : ''
-    apiCenterWorkspaceName: enableAPICenter ? apiCenter.outputs.defaultWorkspaceName : 'default'
     azureMonitorLogSettings: azureMonitorLogSettings
     appInsightsLogSettings: appInsightsLogSettings
     enableUnifiedAiApi: enableUnifiedAiApi
@@ -1160,6 +1157,25 @@ module apiCenter './modules/apic/apic.bicep' = if(enableAPICenter) {
     location: !empty(apicLocation) ? apicLocation : location
     tags: tags
   }
+}
+
+module apiCenterOnboarding './modules/apim/api-center-onboarding-all.bicep' = if(enableAPICenter) {
+  name: 'api-center-onboarding'
+  scope: resourceGroup
+  params: {
+    apiCenterServiceName: enableAPICenter ? apiCenter.outputs.name : ''
+    apiCenterWorkspaceName: enableAPICenter ? apiCenter.outputs.defaultWorkspaceName : 'default'
+    apimGatewayUrl: apim.outputs.apimGatewayUrl
+    isMCPSampleDeployed: true
+    enableAzureAISearch: enableAzureAISearch
+    enableAIModelInference: enableAIModelInference
+    enableOpenAIRealtime: enableOpenAIRealtime
+    enableDocumentIntelligence: enableDocumentIntelligence
+  }
+  dependsOn: [
+    apim
+    apiCenter
+  ]
 }
 
 // Grant AI Foundry resources access to Key Vault (deployed after both Key Vault and Foundry)

@@ -9,7 +9,7 @@ This package enables dynamic LLM backend routing without modifying APIM policies
 - 📦 **Automatic Backend Creation**: Create APIM backends from configuration
 - ⚖️ **Load Balancing**: Distribute requests across multiple backends for the same model
 - 🔄 **Automatic Failover**: Route to healthy backends when others are unavailable
-- 🔌 **Multi-Provider Support**: Microsoft Foundry, Azure OpenAI, and external LLM providers
+- 🔌 **Multi-Provider Support**: Microsoft Foundry, Azure OpenAI, Amazon Bedrock, and external LLM providers
 - 📝 **Declarative Configuration**: Simple `.bicepparam` files for version control
 
 ## What Gets Created
@@ -30,10 +30,15 @@ This package enables dynamic LLM backend routing without modifying APIM policies
 - LLM backends deployed and accessible:
   - Microsoft Foundry with model deployments
   - Azure OpenAI resources with model deployments
+  - Amazon Bedrock with foundation model access
   - APIM can reach the target backends from network perspective
 - Verify APIM's user assigned managed identity has required roles:
    - `Cognitive Services OpenAI User` for Azure OpenAI
    - `Cognitive Services User` for Microsoft Foundry
+- For Amazon Bedrock:
+   - AWS IAM user with Bedrock access and access keys generated
+   - Provide `awsAccessKey`, `awsSecretKey`, and `awsRegion` parameters when deploying — these are stored as secret APIM named values (`aws-access-key`, `aws-secret-key`, `aws-region`)
+   - If these parameters are not provided, the named values are created with a `NOT_CONFIGURED` placeholder and the gateway returns a `500 AWSCredentialsNotConfigured` error at runtime when a Bedrock backend is invoked
 
 ## Quick Start
 
@@ -95,7 +100,7 @@ az deployment sub create --name llm-backend-onboarding --location swedencentral 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
 | `backendId` | string | Yes | Unique identifier for the backend (usually the name of the backend resource) |
-| `backendType` | string | Yes | `ai-foundry`, `azure-openai`, or `external` |
+| `backendType` | string | Yes | `ai-foundry`, `azure-openai`, `aws-bedrock`, or `external` |
 | `endpoint` | string | Yes | Base URL of the LLM service |
 | `authScheme` | string | Yes | `managedIdentity`, `apiKey`, or `token` |
 | `supportedModels` | array | Yes | Array of model objects (see Model Object Properties below) |
@@ -136,6 +141,14 @@ Each model in the `supportedModels` array has these properties:
 - Uses external LLM provider endpoints
 - Authentication: API key or backend credentials
 - No URL rewriting
+
+#### Amazon Bedrock (`aws-bedrock`)
+- Uses Amazon Bedrock runtime endpoints
+- Endpoint format: `https://bedrock-runtime.<aws-region>.amazonaws.com`
+- Authentication: AWS Signature Version 4 (SigV4) using IAM access keys stored as APIM named values
+- Path construction: `/model/{model-id}/converse`
+- Requires additional parameters: `awsAccessKey`, `awsSecretKey`, `awsRegion`
+- See [Microsoft Learn: Import Amazon Bedrock API](https://learn.microsoft.com/en-us/azure/api-management/amazon-bedrock-passthrough-llm-api) for detailed APIM integration guidance
 
 ## Example Configurations
 
@@ -236,6 +249,46 @@ param llmBackendConfig = [
   }
 ]
 ```
+
+### Amazon Bedrock Backend
+
+This example adds an Amazon Bedrock backend alongside Azure backends. The `aws-bedrock` backend type uses AWS SigV4 authentication via IAM access keys stored as APIM named values.
+
+```bicep
+param llmBackendConfig = [
+  {
+    backendId: 'aif-citadel-primary'
+    backendType: 'ai-foundry'
+    endpoint: 'https://aif-RESOURCE_TOKEN-0.cognitiveservices.azure.com/'
+    authScheme: 'managedIdentity'
+    supportedModels: [
+      { "name": "gpt-4o", "sku": "GlobalStandard", "capacity": 100, "modelFormat": "OpenAI", "modelVersion": "2024-11-20", "retirementDate": "2026-09-30" }
+    ]
+    priority: 1
+    weight: 100
+  }
+  {
+    backendId: 'bedrock-us-east-1'
+    backendType: 'aws-bedrock'
+    endpoint: 'https://bedrock-runtime.us-east-1.amazonaws.com'
+    authScheme: 'awsSigV4'
+    supportedModels: [
+      { "name": "us.anthropic.claude-3-5-haiku-20241022-v1:0", "sku": "OnDemand", "capacity": 1, "modelFormat": "Anthropic", "modelVersion": "1", "retirementDate": "2099-12-30" }
+      { "name": "us.anthropic.claude-3-5-sonnet-20241022-v2:0", "sku": "OnDemand", "capacity": 1, "modelFormat": "Anthropic", "modelVersion": "2", "retirementDate": "2099-12-30" }
+      { "name": "us.amazon.nova-pro-v1:0", "sku": "OnDemand", "capacity": 1, "modelFormat": "Amazon", "modelVersion": "1", "retirementDate": "2099-12-30" }
+    ]
+    priority: 1
+    weight: 100
+  }
+]
+
+// AWS credentials for Bedrock authentication
+param awsAccessKey = '<your-aws-access-key-id>'
+param awsSecretKey = '<your-aws-secret-access-key>'
+param awsRegion = 'us-east-1'
+```
+
+> **Important**: Store AWS access keys securely. Consider using Azure Key Vault references for the APIM named values in production. See [Create IAM user access keys](https://docs.aws.amazon.com/IAM/latest/UserGuide/access-key-self-managed.html#Using_CreateAccessKey) for generating AWS access keys.
 
 ## Request Flow
 
@@ -369,8 +422,16 @@ dataset
 1. Verify APIM's managed identity has required roles:
    - `Cognitive Services OpenAI User` for Azure OpenAI
    - `Cognitive Services User` for AI Foundry
-2. `Unauthorized model access` indicates used access contract product is restricted for the model
-3. Check named value `uami-client-id` is set correctly to APIM's managed identity client ID
+2. For Amazon Bedrock: Verify AWS IAM access keys are valid and stored as named values (`aws-access-key`, `aws-secret-key`, `aws-region`)
+3. `Unauthorized model access` indicates used access contract product is restricted for the model
+4. Check named value `uami-client-id` is set correctly to APIM's managed identity client ID
+
+### "500 AWSCredentialsNotConfigured" Error
+
+This error means an `aws-bedrock` backend was matched but the AWS credentials named values are still set to the `NOT_CONFIGURED` placeholder. To fix:
+
+1. Redeploy with the `awsAccessKey`, `awsSecretKey`, and `awsRegion` parameters set to valid values, **or**
+2. Manually update the APIM named values `aws-access-key`, `aws-secret-key`, and `aws-region` in the Azure Portal
 
 ## Files
 

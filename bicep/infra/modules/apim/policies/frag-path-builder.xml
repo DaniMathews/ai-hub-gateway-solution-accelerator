@@ -44,6 +44,13 @@
                     }" />
                     <set-body>@(context.Request.Body.As<string>())</set-body>
                 </when>
+                <!-- Amazon Bedrock: /model/{model}/converse -->
+                <when condition="@(context.Variables.GetValueOrDefault<string>("api-type", "").Equals("bedrock", StringComparison.OrdinalIgnoreCase))">
+                    <set-variable name="finalPath" value="@{
+                        var modelId = context.Variables.GetValueOrDefault<string>("requestedModel", String.Empty);
+                        return !String.IsNullOrEmpty(modelId) ? $"/model/{System.Uri.EscapeDataString(modelId)}/converse" : String.Empty;
+                    }" />
+                </when>
                 <!-- Responses and Inference APIs -->
                 <when condition="@{
                     var apiType = context.Variables.GetValueOrDefault<string>("api-type", String.Empty);

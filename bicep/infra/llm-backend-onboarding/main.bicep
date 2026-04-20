@@ -32,7 +32,7 @@ param apimManagedIdentity object
   description: '''
   Each backend object should have:
   - backendId: Unique identifier (used in APIM backend resource name)
-  - backendType: 'ai-foundry' | 'azure-openai' | 'external'
+  - backendType: 'ai-foundry' | 'azure-openai' | 'aws-bedrock' | 'external'
   - endpoint: Base URL of the LLM service (e.g., https://xxx.services.ai.azure.com/models)
   - authScheme: 'managedIdentity' | 'apiKey' | 'token'
   - supportedModels: Array of model objects, each with:
@@ -68,6 +68,17 @@ param llmBackendConfig array
 
 @description('Whether to configure circuit breaker for backends (recommended for production)')
 param configureCircuitBreaker bool = true
+
+@description('AWS access key ID for Amazon Bedrock authentication (required when using aws-bedrock backends)')
+@secure()
+param awsAccessKey string = ''
+
+@description('AWS secret access key for Amazon Bedrock authentication (required when using aws-bedrock backends)')
+@secure()
+param awsSecretKey string = ''
+
+@description('AWS region for Amazon Bedrock (e.g., us-east-1)')
+param awsRegion string = ''
 
 // @description('Whether to deploy the Universal LLM API (set to false if API already exists)')
 // param deployUniversalLlmApi bool = true
@@ -143,6 +154,9 @@ module llmPolicyFragments 'modules/llm-policy-fragments.bicep' = {
     policyFragmentConfig: llmBackendPools.outputs.policyFragmentConfig
     managedIdentityClientId: managedIdentity.properties.clientId
     llmBackendConfig: llmBackendConfig
+    awsAccessKey: awsAccessKey
+    awsSecretKey: awsSecretKey
+    awsRegion: awsRegion
   }
 }
 

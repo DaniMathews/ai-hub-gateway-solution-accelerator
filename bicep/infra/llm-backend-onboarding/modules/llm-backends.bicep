@@ -1,6 +1,6 @@
 /**
  * @module llm-backends
- * @description Creates APIM backends for LLM services (AI Foundry, Azure OpenAI, and other providers)
+ * @description Creates APIM backends for LLM services (AI Foundry, Azure OpenAI, Amazon Bedrock, and other providers)
  * 
  * This module dynamically creates backend resources based on the provided configuration array.
  * Each backend represents an LLM endpoint that can serve one or more model deployments.
@@ -8,6 +8,7 @@
  * Supported backend types:
  * - ai-foundry: Azure AI Foundry projects with model deployments
  * - azure-openai: Azure OpenAI Service endpoints
+ * - aws-bedrock: Amazon Bedrock endpoints with AWS SigV4 authentication
  * - external: Other LLM providers (OpenAI, Anthropic, etc.)
  */
 

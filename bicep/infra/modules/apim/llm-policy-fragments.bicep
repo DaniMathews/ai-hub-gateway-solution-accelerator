@@ -107,6 +107,38 @@ resource apimService 'Microsoft.ApiManagement/service@2024-06-01-preview' existi
   name: apimServiceName
 }
 
+// Named values for AWS Bedrock authentication
+// Always created with safe defaults so the policy fragment compiles even when no aws-bedrock backends are configured.
+resource awsAccessKeyNamedValue 'Microsoft.ApiManagement/service/namedValues@2024-06-01-preview' = {
+  name: 'aws-access-key'
+  parent: apimService
+  properties: {
+    displayName: 'aws-access-key'
+    value: 'NOT_CONFIGURED'
+    secret: true
+  }
+}
+
+resource awsSecretKeyNamedValue 'Microsoft.ApiManagement/service/namedValues@2024-06-01-preview' = {
+  name: 'aws-secret-key'
+  parent: apimService
+  properties: {
+    displayName: 'aws-secret-key'
+    value: 'NOT_CONFIGURED'
+    secret: true
+  }
+}
+
+resource awsRegionNamedValue 'Microsoft.ApiManagement/service/namedValues@2024-06-01-preview' = {
+  name: 'aws-region'
+  parent: apimService
+  properties: {
+    displayName: 'aws-region'
+    value: 'NOT_CONFIGURED'
+    secret: false
+  }
+}
+
 /**
  * Policy Fragment: Set Backend Pools
  * Contains the dynamically generated backend pool configurations
@@ -128,6 +160,11 @@ resource setBackendPoolsFragment 'Microsoft.ApiManagement/service/policyFragment
 resource setBackendAuthorizationFragment 'Microsoft.ApiManagement/service/policyFragments@2024-06-01-preview' = {
   name: 'set-backend-authorization'
   parent: apimService
+  dependsOn: [
+    awsAccessKeyNamedValue
+    awsSecretKeyNamedValue
+    awsRegionNamedValue
+  ]
   properties: {
     description: 'Authentication and routing configuration for different LLM backend types'
     format: 'rawxml'
