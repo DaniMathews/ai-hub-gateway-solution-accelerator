@@ -133,6 +133,8 @@ Add a new `<when>` block inside the `<choose>` element, before the default `<oth
 | `{base-path}` or `{base-path}/{id}` | Resource-based APIs | Responses API |
 | `/model/{model}/converse` | Provider-specific paths | Amazon Bedrock |
 
+> **Stateful APIs (Responses API)** — When your new api-type exposes server-side stateful resources keyed by an id (similar to OpenAI's Responses API `response_id`), pair it with the cross-API `responses-id-security` / `responses-id-cache-store` fragments described in [llm-routing-architecture.md](llm-routing-architecture.md#step-15-responses-api-id-security-responses-id-security--responses-id-cache-store). Those fragments are wired in once per API policy and cover Universal LLM, Azure OpenAI, and Unified AI surfaces, returning **403** on cross-subscription access and **404** on unknown ids.
+
 #### Additional Behaviors
 
 Your path builder block can also:
