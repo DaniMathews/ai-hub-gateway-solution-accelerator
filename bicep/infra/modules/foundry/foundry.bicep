@@ -130,7 +130,7 @@ resource subnet 'Microsoft.Network/virtualNetworks/subnets@2022-01-01' existing 
 // ------------------
 //    RESOURCES
 // ------------------
-resource foundryResources 'Microsoft.CognitiveServices/accounts@2025-06-01' = [for (config, i) in aiServicesConfig: {
+resource foundryResources 'Microsoft.CognitiveServices/accounts@2025-12-01' = [for (config, i) in aiServicesConfig: {
   name: !empty(config.name) ? config.name : 'aif-${resourceToken}-${i}'
   location: config.location
   tags: tags
@@ -150,7 +150,7 @@ resource foundryResources 'Microsoft.CognitiveServices/accounts@2025-06-01' = [f
 
     publicNetworkAccess: publicNetworkAccess
     networkAcls: {
-      defaultAction: 'Deny'
+      defaultAction: 'Allow'
       bypass: 'AzureServices'
       ipRules: []
       virtualNetworkRules: []

@@ -208,6 +208,9 @@ resource virtualNetwork 'Microsoft.Network/virtualNetworks@2019-11-01' = {
             {
               service: 'Microsoft.Storage'
             }
+            {
+              service: 'Microsoft.CognitiveServices'
+            }
           ] : []
           privateEndpointNetworkPolicies: 'Enabled'
           privateLinkServiceNetworkPolicies: 'Enabled'
@@ -230,6 +233,11 @@ resource virtualNetwork 'Microsoft.Network/virtualNetworks@2019-11-01' = {
           }
           privateEndpointNetworkPolicies: 'Disabled'
           privateLinkServiceNetworkPolicies: 'Enabled'
+          serviceEndpoints: [
+            {
+              service: 'Microsoft.CognitiveServices'
+            }
+          ]
         }
       }
       {
@@ -241,6 +249,11 @@ resource virtualNetwork 'Microsoft.Network/virtualNetworks@2019-11-01' = {
           }
           privateEndpointNetworkPolicies: 'Enabled'
           privateLinkServiceNetworkPolicies: 'Enabled'
+          serviceEndpoints: [
+            {
+              service: 'Microsoft.CognitiveServices'
+            }
+          ]
           delegations: [
             {
               name: 'Microsoft.Web/serverFarms'

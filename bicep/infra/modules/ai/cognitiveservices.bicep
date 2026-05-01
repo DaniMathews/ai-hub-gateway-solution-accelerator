@@ -15,6 +15,8 @@ param aiPrivateEndpointName string
 param vNetName string
 param vNetLocation string
 param privateEndpointSubnetName string
+param apimSubnetName string = ''
+param functionAppSubnetName string = ''
 param openAiDnsZoneName string
 
 // Use existing network/dns zone - Legacy parameters (used when dnsZoneResourceId is not provided)
@@ -35,11 +37,43 @@ resource subnet 'Microsoft.Network/virtualNetworks/subnets@2022-01-01' existing 
   parent: vnet
 }
 
+resource apimSubnet 'Microsoft.Network/virtualNetworks/subnets@2022-01-01' existing = if (!empty(apimSubnetName)) {
+  name: apimSubnetName
+  parent: vnet
+}
+
+resource functionAppSubnet 'Microsoft.Network/virtualNetworks/subnets@2022-01-01' existing = if (!empty(functionAppSubnetName)) {
+  name: functionAppSubnetName
+  parent: vnet
+}
+
+// Build virtualNetworkRules for the 3 accelerator subnets (skip any whose name was not provided)
+var virtualNetworkRules = union(
+  [
+    {
+      id: subnet.id
+      ignoreMissingVnetServiceEndpoint: false
+    }
+  ],
+  !empty(apimSubnetName) ? [
+    {
+      id: apimSubnet.id
+      ignoreMissingVnetServiceEndpoint: false
+    }
+  ] : [],
+  !empty(functionAppSubnetName) ? [
+    {
+      id: functionAppSubnet.id
+      ignoreMissingVnetServiceEndpoint: false
+    }
+  ] : []
+)
+
 resource managedIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2018-11-30' existing = {
   name: managedIdentityName
 }
 
-resource account 'Microsoft.CognitiveServices/accounts@2023-05-01' = {
+resource account 'Microsoft.CognitiveServices/accounts@2026-01-15-preview' = {
   name: name
   location: location
   tags: union(tags, { 'azd-service-name': name })
@@ -51,16 +85,16 @@ resource account 'Microsoft.CognitiveServices/accounts@2023-05-01' = {
     customSubDomainName: toLower(name)
     publicNetworkAccess: publicNetworkAccess
     networkAcls: {
-      defaultAction: 'Deny'
+      defaultAction: 'Allow'
       ipRules: []
-      virtualNetworkRules: []
+      virtualNetworkRules: virtualNetworkRules
     }
   }
   sku: sku
 }
 
 @batchSize(1)
-resource deployment 'Microsoft.CognitiveServices/accounts/deployments@2023-05-01' = [for deployment in deployments: {
+resource deployment 'Microsoft.CognitiveServices/accounts/deployments@2025-10-01-preview' = [for deployment in deployments: {
   parent: account
   name: deployment.name
   properties: {

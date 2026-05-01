@@ -858,6 +858,8 @@ module contentSafety 'modules/ai/cognitiveservices.bicep' = {
     vNetName: useExistingVnet ? vnetExisting.outputs.vnetName : vnet.outputs.vnetName
     vNetLocation: useExistingVnet ? vnetExisting.outputs.location : vnet.outputs.location
     privateEndpointSubnetName: useExistingVnet ? vnetExisting.outputs.privateEndpointSubnetName : vnet.outputs.privateEndpointSubnetName
+    apimSubnetName: useExistingVnet ? vnetExisting.outputs.apimSubnetName : vnet.outputs.apimSubnetName
+    functionAppSubnetName: useExistingVnet ? vnetExisting.outputs.functionAppSubnetName : vnet.outputs.functionAppSubnetName
     aiPrivateEndpointName: !empty(aiContentSafetyPrivateEndpointName) ? aiContentSafetyPrivateEndpointName : '${abbrs.cognitiveServicesAccounts}consafety-pe-${resourceToken}'
     publicNetworkAccess: aiContentSafetyExternalNetworkAccess
     openAiDnsZoneName: aiCogntiveServicesDnsZoneName
@@ -883,6 +885,8 @@ module languageService 'modules/ai/cognitiveservices.bicep' = {
     vNetName: useExistingVnet ? vnetExisting.outputs.vnetName : vnet.outputs.vnetName
     vNetLocation: useExistingVnet ? vnetExisting.outputs.location : vnet.outputs.location
     privateEndpointSubnetName: useExistingVnet ? vnetExisting.outputs.privateEndpointSubnetName : vnet.outputs.privateEndpointSubnetName
+    apimSubnetName: useExistingVnet ? vnetExisting.outputs.apimSubnetName : vnet.outputs.apimSubnetName
+    functionAppSubnetName: useExistingVnet ? vnetExisting.outputs.functionAppSubnetName : vnet.outputs.functionAppSubnetName
     aiPrivateEndpointName: !empty(languageServicePrivateEndpointName) ? languageServicePrivateEndpointName : '${abbrs.cognitiveServicesAccounts}language-pe-${resourceToken}'
     publicNetworkAccess: languageServiceExternalNetworkAccess
     openAiDnsZoneName: aiCogntiveServicesDnsZoneName
