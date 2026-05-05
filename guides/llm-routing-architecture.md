@@ -360,13 +360,15 @@ Analyzes the incoming request to detect the API type and extract the model. This
 
 **API Type Detection:**
 1. Removes the API path prefix (`/unified-ai`) from the request URL
-2. Matches the remaining path against configured `base-path` patterns in `config-api-types`
-3. Rejects unrecognized paths with a `403 Forbidden` response
+2. Matches the remaining path against configured `base-path` patterns in `config-api-types` using **case-insensitive prefix matching (`StartsWith`)** and selects the **longest matching base-path** so nested prefixes (e.g. `/openai/v1/responses` vs `/openai/v1` vs `/openai`) always resolve to the most specific api-type independent of declaration order
+3. Rejects unrecognized paths with a `403 Forbidden` response (`PathNotAllowed`). For example, `/v2/openai/chat/completions` does **not** match `/openai` and is rejected with 403
 
 **Model Extraction** (in priority order):
-1. **GET/DELETE requests**: Returns `"non-llm-request"` (handled by operation-level policies)
+1. **GET requests, and DELETE on `/responses*`**: Returns `"non-llm-request"` (operation-level policies handle these). For `/responses/{id}` GET/DELETE the model is later **hydrated from the response-id ownership cache** by `responses-id-security` so model-based routing in `set-target-backend-pool` and `path-builder` still selects the original backend.
 2. **Request body**: Extracts `model` field from JSON body
 3. **URL path segment**: Extracts model from path using `api-path-segment` (e.g., `/openai/deployments/{model}/...`)
+
+> **Note**: `request-processor` no longer short-circuits GET/DELETE requests — `api-type`, `api-base-path`, `apiTypeOverrideBackend`, and `skipBackendUrlRewrite` are always populated. This is required so that `path-builder` can correctly construct backend paths such as `{api-base-path}/{response-id}` for Responses API GET/DELETE after `responses-id-security` hydrates the model.
 
 **Output Variables:**
 - `api-type`: Detected API type (e.g., `openai`, `inference`, `geminiopenai`)

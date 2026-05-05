@@ -69,9 +69,9 @@ Add a new entry to the `api-types` object in the metadata config. The key is you
 
 #### Important Considerations
 
-1. **Ordering matters for path matching**: The `request-processor` uses `path.Contains(basePath)` to match. If your `base-path` is a substring of another API type's path (e.g., `/model` vs `/models`), place the **longer path first** in the configuration. The current ordering ensures `/models` (inference) is checked before `/model` (bedrock) because the matching picks the first match found.
+1. **Prefix matching with longest-match wins**: The `request-processor` uses **case-insensitive `StartsWith`** matching against the request path (after stripping the `/unified-ai` API prefix) and selects the **longest matching `base-path`**. This means declaration order in `api-types` does **not** affect routing — `/openai/v1/responses` will always win over `/openai/v1` or `/openai` for a request like `/openai/v1/responses/{id}`. Unrecognized prefixes (e.g. `/v2/openai/...`) are rejected with `403 PathNotAllowed`.
 
-2. **The `base-path` must be unique**: No two API types should share the same base-path prefix to avoid ambiguous routing.
+2. **The `base-path` must be unique**: No two API types should declare the same `base-path` value.
 
 3. **Optional `backend` property**: If your API type should always route to a specific backend (bypassing model-based pool routing), add a `backend` property:
    ```json
