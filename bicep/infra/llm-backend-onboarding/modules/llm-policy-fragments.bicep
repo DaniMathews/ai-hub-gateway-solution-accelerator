@@ -48,7 +48,11 @@ param keyVaultName string = ''
 // Combine backend pools and direct backends for unified routing
 var allPools = union(policyFragmentConfig.backendPools, policyFragmentConfig.directBackends)
 
-// Generate C# code for each backend pool with unique variable names (includes authType and authConfigNamedValue)
+// Generate C# code for each backend pool with unique variable names. The
+// `authConfigNamedValue` field is informational only — the actual auth
+// header is configured natively on the APIM Backend resource (see
+// `credentials.header` in `llm-backends.bicep`), so the runtime policy
+// never has to resolve a named-value-key string back to its secret.
 var backendPoolsArray = [for (pool, index) in allPools: replace(replace(replace(replace(replace(replace('// Pool: POOLNAME (Type: POOLTYPE, Auth: AUTHTYPE)\nvar pool_INDEX = new JObject()\n{\n    { "poolName", "POOLNAME" },\n    { "poolType", "POOLTYPE" },\n    { "authType", "AUTHTYPE" },\n    { "authConfigNamedValue", "AUTHCONFIGNAMEDVALUE" },\n    { "supportedModels", new JArray(MODELS) }\n};\nbackendPools.Add(pool_INDEX);', 'POOLNAME', pool.poolName), 'POOLTYPE', pool.poolType), 'AUTHTYPE', pool.?authType ?? ''), 'AUTHCONFIGNAMEDVALUE', pool.?authConfigNamedValue ?? ''), 'INDEX', string(index)), 'MODELS', join(map(pool.supportedModels, (model) => '"${model}"'), ', '))]
 
 var backendPoolsCode = join(backendPoolsArray, '\n')
@@ -180,24 +184,15 @@ resource awsRegionNamedValue 'Microsoft.ApiManagement/service/namedValues@2024-0
   }
 }
 
-// Dynamic named values for backend API key credentials
-// Backends with authConfig.namedValueKey and authConfig.keyVaultSecretUri use Key Vault references
-// Backends with authConfig.namedValueKey and authConfig.secretValue use explicit values (testing only)
-var backendAuthConfigs = filter(llmBackendConfig, config => !empty(config.?authConfig.?namedValueKey ?? ''))
+// Named value for Anthropic API version header (anthropic-version) is created
+// by the `llm-backends` module (Step 1 in main.bicep) so that the api-key-anthropic
+// backend's `credentials.header` reference to `{{anthropic-version}}` resolves at
+// backend create time. Do not re-declare it here.
 
-resource backendApiKeyNamedValues 'Microsoft.ApiManagement/service/namedValues@2024-06-01-preview' = [for config in backendAuthConfigs: {
-  name: config.authConfig.namedValueKey
-  parent: apimService
-  properties: {
-    displayName: config.authConfig.namedValueKey
-    secret: true
-    // Use Key Vault reference if keyVaultSecretUri is provided, otherwise use explicit value
-    keyVault: !empty(config.?authConfig.?keyVaultSecretUri ?? '') ? {
-      secretIdentifier: config.authConfig.keyVaultSecretUri
-    } : null
-    value: empty(config.?authConfig.?keyVaultSecretUri ?? '') ? (config.?authConfig.?secretValue ?? 'NOT_CONFIGURED') : null
-  }
-}]
+// Per-backend named values for `credentials.header` are now created by the
+// `llm-backends` module (which runs as Step 1 in main.bicep) so they exist
+// before the backend resources reference them. This module no longer needs to
+// declare them.
 
 // Policy Fragment: Set Backend Pools
 resource setBackendPoolsFragment 'Microsoft.ApiManagement/service/policyFragments@2024-06-01-preview' = {

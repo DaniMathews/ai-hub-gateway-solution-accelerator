@@ -12,7 +12,10 @@
         - apiTypeOverrideBackend (optional): When set by request-processor, bypasses pool matching and uses this backend directly
         
         Output Variables:
-        - targetBackendPool: The selected backend pool name or error code (ERROR_NO_MODEL, ERROR_NO_ALLOWED_POOLS)
+        - targetBackendPool: The selected backend pool name or error code (ERROR_NO_MODEL, ERROR_MODEL_NOT_SUPPORTED, ERROR_NO_ALLOWED_POOLS)
+            * ERROR_NO_MODEL              — request did not carry a model parameter at all
+            * ERROR_MODEL_NOT_SUPPORTED   — model was provided but no pool in the gateway serves it
+            * ERROR_NO_ALLOWED_POOLS      — model is served by a pool, but none of the matching pools are allowed by RBAC
         - targetPoolType: The type of the selected backend pool (e.g., "azure-openai", "ai-foundry", "api-type-override")
         - targetAuthType: The authentication type required for the selected backend pool.
     -->
@@ -37,6 +40,13 @@
         
         string defaultBackendPool = context.Variables.GetValueOrDefault<string>("defaultBackendPool", "");
         string allowedBackendPools = context.Variables.GetValueOrDefault<string>("allowedBackendPools", "");
+        // Optional pool-type filter (set by request-processor for native-prefix api-types so /bedrock/
+        // requests cannot accidentally route to an aws-bedrock-mantle pool that happens to advertise the
+        // same model name).
+        string compatiblePoolTypesCsv = context.Variables.GetValueOrDefault<string>("compatiblePoolTypes", "");
+        var compatiblePoolTypes = string.IsNullOrWhiteSpace(compatiblePoolTypesCsv)
+            ? null
+            : compatiblePoolTypesCsv.Split(',').Select(s => s.Trim()).Where(s => s.Length > 0).ToArray();
         JArray backendPools = (JArray)context.Variables["backendPools"];
 
         var allowedPools = string.IsNullOrWhiteSpace(allowedBackendPools)
@@ -47,6 +57,12 @@
         List<JObject> matchingPools = new List<JObject>();
         foreach (JObject pool in backendPools)
         {
+            // Apply api-type pool-type filter first (e.g., /bedrock/ → only aws-bedrock pools)
+            if (compatiblePoolTypes != null)
+            {
+                var poolType = pool["poolType"]?.ToString() ?? "";
+                if (!compatiblePoolTypes.Contains(poolType, StringComparer.OrdinalIgnoreCase)) { continue; }
+            }
             JArray supportedModels = (JArray)pool["supportedModels"];
             if (supportedModels.Any(model => model.ToString().Equals(requestedModel, StringComparison.OrdinalIgnoreCase)))
             {
@@ -89,8 +105,16 @@
             return defaultBackendPool;
         }
         
-        // No matching pools and no default - error
-        return "ERROR_NO_MODEL";
+        // No matching pools and no default. Distinguish the two failure modes so the
+        // caller gets a useful error:
+        //   - empty requestedModel  → request never supplied a model parameter
+        //   - non-empty             → model was supplied but no pool in the gateway
+        //                             advertises it (different from RBAC-denied)
+        if (string.IsNullOrWhiteSpace(requestedModel))
+        {
+            return "ERROR_NO_MODEL";
+        }
+        return "ERROR_MODEL_NOT_SUPPORTED";
     }" />
 
     <!-- Validate target backend pool and return appropriate error response if needed -->
@@ -126,10 +150,23 @@
                         <set-body>@{
                             string requestedModel = (string)context.Variables["requestedModel"];
                             JArray backendPools = (JArray)context.Variables["backendPools"];
+                            string compatiblePoolTypesCsv = context.Variables.GetValueOrDefault<string>("compatiblePoolTypes", "");
+                            var compatiblePoolTypes = string.IsNullOrWhiteSpace(compatiblePoolTypesCsv)
+                                ? null
+                                : compatiblePoolTypesCsv.Split(',').Select(s => s.Trim()).Where(s => s.Length > 0).ToArray();
+
+                            // Models advertised on the *current* API surface (filtered by compatiblePoolTypes
+                            // when the inbound API restricts which pool types it can route to). Only these are
+                            // genuinely callable from this surface — listing every gateway model would falsely
+                            // imply support for native-only models on the OpenAI-compat surface and vice versa.
                             JArray supportedModels = new JArray();
-                            
                             foreach (JObject pool in backendPools)
                             {
+                                if (compatiblePoolTypes != null)
+                                {
+                                    var poolType = pool["poolType"]?.ToString() ?? "";
+                                    if (!compatiblePoolTypes.Contains(poolType, StringComparer.OrdinalIgnoreCase)) { continue; }
+                                }
                                 foreach (var model in (JArray)pool["supportedModels"])
                                 {
                                     if (!supportedModels.Contains(model))
@@ -138,16 +175,40 @@
                                     }
                                 }
                             }
-                            
-                            return new JObject(
+
+                            // If the model exists in a pool that is incompatible with this API surface,
+                            // tell the caller — otherwise they see their model in the gateway's full catalog
+                            // (e.g. via GET /models/models) and assume the rejection is a bug.
+                            JArray incompatiblePools = new JArray();
+                            if (compatiblePoolTypes != null)
+                            {
+                                foreach (JObject pool in backendPools)
+                                {
+                                    var poolType = pool["poolType"]?.ToString() ?? "";
+                                    if (compatiblePoolTypes.Contains(poolType, StringComparer.OrdinalIgnoreCase)) { continue; }
+                                    var hosts = (JArray)pool["supportedModels"];
+                                    if (hosts.Any(m => m.ToString().Equals(requestedModel, StringComparison.OrdinalIgnoreCase)))
+                                    {
+                                        incompatiblePools.Add(poolType);
+                                    }
+                                }
+                            }
+
+                            string message = incompatiblePools.Count > 0
+                                ? $"Model '{requestedModel}' is not available on this API surface (compatible pool types: {compatiblePoolTypesCsv}). It is hosted by pool type(s) [{string.Join(", ", incompatiblePools.Select(p => p.ToString()))}] which require a different API surface (for example a native /bedrock, /gemini, or /claude path on the Unified AI API). Models available on this surface: {string.Join(", ", supportedModels.Select(m => m.ToString()))}"
+                                : $"Model '{requestedModel}' is not supported. Supported models: {string.Join(", ", supportedModels.Select(m => m.ToString()))}";
+
+                            var errorBody = new JObject(
                                 new JProperty("error", new JObject(
-                                    new JProperty("message", $"Model '{requestedModel}' is not supported. Supported models: {string.Join(", ", supportedModels.Select(m => m.ToString()))}"),
+                                    new JProperty("message", message),
                                     new JProperty("type", "invalid_request_error"),
-                                    new JProperty("code", "unsupported_model"),
+                                    new JProperty("code", incompatiblePools.Count > 0 ? "model_not_available_on_this_surface" : "unsupported_model"),
                                     new JProperty("param", "model"),
-                                    new JProperty("supported_models", supportedModels)
+                                    new JProperty("supported_models", supportedModels),
+                                    new JProperty("incompatible_pool_types", incompatiblePools)
                                 ))
-                            ).ToString();
+                            );
+                            return errorBody.ToString();
                         }</set-body>
                     </return-response>
                 </when>
@@ -242,6 +303,8 @@
                     if (poolType == "ai-foundry" || poolType == "azure-openai") { return "native-backend-authorization"; }
                     if (poolType == "aws-bedrock") { return "aws-sigv4"; }
                     if (poolType == "aws-bedrock-mantle" || poolType == "gemini-openai") { return "api-key-bearer"; }
+                    if (poolType == "gemini") { return "api-key-gemini"; }
+                    if (poolType == "anthropic") { return "api-key-anthropic"; }
                     if (poolType == "external") { return "none"; }
                     return "native-backend-authorization";
                 }

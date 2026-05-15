@@ -1021,6 +1021,19 @@ module apim './modules/apim/apim.bicep' = {
   }
 }
 
+// Grant the APIM SYSTEM-assigned managed identity (created by the apim module) read access
+// to Key Vault secrets and certificates. APIM uses its system-assigned identity to resolve
+// named-value Key Vault references, so this is required before any Key-Vault-backed named
+// value can be provisioned.
+module keyVaultApimSystemRbac './modules/keyvault/keyvault-apim-system-rbac.bicep' = {
+  name: 'kv-apim-system-rbac'
+  scope: resourceGroup
+  params: {
+    keyVaultName: keyVault.outputs.keyVaultName
+    apimSystemAssignedPrincipalId: apim.outputs.apimSystemAssignedPrincipalId
+  }
+}
+
 module cosmosDb './modules/cosmos-db/cosmos-db.bicep' = {
   name: 'cosmos-db'
   scope: resourceGroup

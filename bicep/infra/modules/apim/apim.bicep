@@ -178,7 +178,13 @@ resource apimService 'Microsoft.ApiManagement/service@2024-05-01' = {
     capacity: (sku == 'Consumption') ? 0 : ((sku == 'Developer') ? 1 : skuCount)
   }
   identity: {
-    type: 'UserAssigned'
+    // Enable BOTH system-assigned and user-assigned managed identities.
+    // - User-assigned: pre-existing identity used by APIM policies (federated to backends, etc.)
+    // - System-assigned: required by APIM to resolve named-value Key Vault references.
+    //   When a named value is created with a `keyVault.secretIdentifier`, APIM uses its
+    //   primary identity (system-assigned by default) to fetch the secret. Without it,
+    //   provisioning a Key-Vault-backed named value fails with an authorization error.
+    type: 'SystemAssigned, UserAssigned'
     userAssignedIdentities: {
       '${managedIdentity.id}': {}
     }
@@ -928,3 +934,6 @@ output apimOpenaiApiPath string = apimOpenaiApi.outputs.path
 output apimGatewayUrl string = apimService.properties.gatewayUrl
 
 output apimIdentityClientId string = managedIdentity.properties.principalId
+
+@description('Principal ID of the APIM system-assigned managed identity. Used to grant Key Vault access for named-value secret references.')
+output apimSystemAssignedPrincipalId string = apimService.identity.principalId
