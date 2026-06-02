@@ -20,7 +20,7 @@ param tags object = { 'azd-env-name': environmentName, 'SecurityControl': 'Ignor
 // RESOURCE NAMES - Assign custom names to different provisioned services
 //
 @description('Name of the resource group. Leave blank to use default naming conventions.')
-param resourceGroupName string = ''
+param resourceGroupName string
 
 @description('Name of the managed identity. Leave blank to use default naming conventions.')
 param identityName string = ''
