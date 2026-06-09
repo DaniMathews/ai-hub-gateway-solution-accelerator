@@ -173,7 +173,7 @@ Add a new `<when>` block inside the `<choose>` element, before the default `<oth
 | `/bedrock/model/{model}/converse` (prefix-strip) | Provider-specific native paths | Amazon Bedrock, Gemini native |
 | Fixed path with body-model rewrite | Provider-specific paths whose API has no model in URL | Anthropic Claude (`/claude/v1/messages`) |
 
-> **Stateful APIs (Responses API)** — When your new api-type exposes server-side stateful resources keyed by an id (similar to OpenAI's Responses API `response_id`), pair it with the cross-API `responses-id-security` / `responses-id-cache-store` fragments described in [llm-routing-architecture.md](llm-routing-architecture.md#step-15-responses-api-id-security-responses-id-security--responses-id-cache-store). Those fragments are wired in once per API policy and cover Universal LLM, Azure OpenAI, and Unified AI surfaces, returning **403** on cross-subscription access and **404** on unknown ids.
+> **Stateful APIs (Responses API)** — When your new api-type exposes server-side stateful resources keyed by an id (similar to OpenAI's Responses API `response_id`), pair it with the cross-API `responses-id-security` / `responses-id-cache-store` fragments described in [llm-access-guide.md](llm-access-guide.md#step-15-responses-api-id-security-responses-id-security--responses-id-cache-store). Those fragments are wired in once per API policy and cover Universal LLM, Azure OpenAI, and Unified AI surfaces, returning **403** on cross-subscription access and **404** on unknown ids.
 
 #### Additional Behaviors
 
@@ -422,11 +422,11 @@ Then check the response headers:
 For a complete working example of onboarding Amazon Bedrock as a new API type, see:
 
 - **Backend Configuration**: [LLM Backend Onboarding README](../bicep/infra/llm-backend-onboarding/README.md#amazon-bedrock-backend) — Amazon Bedrock backend example
-- **Routing Architecture**: [LLM Routing Architecture Guide](llm-routing-architecture.md) — Bedrock request flow and path construction
+- **Routing Architecture**: [LLM Access Guide](llm-access-guide.md) — Bedrock request flow and path construction
 - **APIM Integration**: [Microsoft Learn: Amazon Bedrock APIM Integration](https://learn.microsoft.com/en-us/azure/api-management/amazon-bedrock-passthrough-llm-api) — AWS SigV4 authentication policy details
 
 ## Related Guides
 
-- [LLM Routing Architecture](llm-routing-architecture.md) - Complete routing flow documentation
+- [LLM Access Guide](llm-access-guide.md) - Complete routing flow documentation
 - [LLM Backend Onboarding](../bicep/infra/llm-backend-onboarding/README.md) - Backend configuration reference
 - [Parameters Usage Guide](parameters-usage-guide.md) - Parameter file configuration

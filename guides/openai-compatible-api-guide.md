@@ -11,7 +11,7 @@ This path supports the standard OpenAI operations:
 - `POST /v1/images/generations` — Image generation
 - `GET /v1/models` — List available models
 
-> **Responses API security**: The gateway enforces per-subscription ownership of `response_id` values. A `GET`/`DELETE` on `/v1/responses/{id}` (or a chained `POST` carrying `previous_response_id`) issued by a *different* subscription than the one that originally created the response is rejected with **HTTP 403** (`response_id_forbidden`). Unknown / expired ids return **HTTP 404** (`response_id_not_found`). See [llm-routing-architecture.md](llm-routing-architecture.md#step-15-responses-api-id-security-responses-id-security--responses-id-cache-store) for the cache contract and routing details.
+> **Responses API security**: The gateway enforces per-subscription ownership of `response_id` values. A `GET`/`DELETE` on `/v1/responses/{id}` (or a chained `POST` carrying `previous_response_id`) issued by a *different* subscription than the one that originally created the response is rejected with **HTTP 403** (`response_id_forbidden`). Unknown / expired ids return **HTTP 404** (`response_id_not_found`). See [llm-access-guide.md](llm-access-guide.md#step-15-responses-api-id-security-responses-id-security--responses-id-cache-store) for the cache contract and routing details.
 
 ## Getting Started
 
@@ -140,6 +140,6 @@ Two backends of the same type can use different auth types. For example, you can
 
 ## Related Guides
 
-- [LLM Routing Architecture](llm-routing-architecture.md) — Complete routing flow documentation
+- [LLM Access Guide](llm-access-guide.md) — Unified LLM access patterns and complete routing flow documentation
 - [Onboarding New API Types](unified-ai-api-type-onboarding.md) — Adding new backend types
 - [LLM Backend Onboarding](../bicep/infra/llm-backend-onboarding/README.md) — Backend configuration reference
