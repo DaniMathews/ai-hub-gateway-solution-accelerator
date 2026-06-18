@@ -1,3 +1,11 @@
+// LGIRS - module refactoring to support deployment into existing App Service Environment and/or App Service Plan
+param useExistingAppServiceEnvironment bool = false
+param existingAppServiceEnvironmentSubscriptionId string = ''
+param existingAppServiceEnvironmentResourceGroupName string = ''
+param existingAppServiceEnvironmentName string = ''
+param existingAppServicePlanResourceGroup string = ''
+param existingAppServicePlanName string = ''
+
 param logicAppName string
 
 param tags object = {}
@@ -13,7 +21,7 @@ param location string = resourceGroup().location
 param skuName string
 param skuFamily string
 param skuSize string
-param skuCapaicty int
+param skuCapacity int // LGIRS - fix typo
 param skuTier string
 param isReserved bool
 
@@ -51,9 +59,14 @@ resource storageAccount 'Microsoft.Storage/storageAccounts@2023-05-01' existing 
   name: storageAccountName
 }
 
+resource existingAppServiceEnvironment 'Microsoft.Web/hostingEnvironments@2024-04-01' existing = if (useExistingAppServiceEnvironment) {
+  scope: resourceGroup(!empty(existingAppServiceEnvironmentSubscriptionId) ? existingAppServiceEnvironmentSubscriptionId : subscription().subscriptionId, existingAppServiceEnvironmentResourceGroupName)
+  name: existingAppServiceEnvironmentName
+}
+
 var storageAccountConnectionString = 'DefaultEndpointsProtocol=https;AccountName=${storageAccount.name};AccountKey=${storageAccount.listKeys().keys[0].value};EndpointSuffix=core.windows.net'
 
-resource hostingPlan 'Microsoft.Web/serverfarms@2024-04-01' = {
+resource hostingPlanNew 'Microsoft.Web/serverfarms@2024-04-01' = if (empty(existingAppServicePlanResourceGroup)) {
   name: 'hosting-plan-${logicAppName}'
   tags: union(tags, { 'azd-service-name': 'hosting-plan-${logicAppName}' })
   location: location
@@ -62,14 +75,25 @@ resource hostingPlan 'Microsoft.Web/serverfarms@2024-04-01' = {
     tier: skuTier //'WorkflowStandard'
     family: skuFamily //'WS'
     size: skuSize //'WS1'
-    capacity: skuCapaicty //1
+    capacity: skuCapacity //1
   }
   kind: 'elastic'
-  properties: {
+  properties: union({
     maximumElasticWorkerCount: 20
     reserved: isReserved
-  }
+  }, useExistingAppServiceEnvironment ? {
+    hostingEnvironmentProfile: {
+      id: existingAppServiceEnvironment.id
+    }
+  } : {})
 }
+
+resource hostingPlanExisting 'Microsoft.Web/serverfarms@2024-04-01' existing = if (!empty(existingAppServicePlanResourceGroup)) {
+  name: existingAppServicePlanName
+  scope: resourceGroup(existingAppServicePlanResourceGroup)
+}
+
+var hostingPlanId = empty(existingAppServicePlanResourceGroup) ? hostingPlanNew.id : hostingPlanExisting.id
 
 resource logicApp 'Microsoft.Web/sites@2024-04-01' = {
   name: logicAppName
@@ -79,15 +103,16 @@ resource logicApp 'Microsoft.Web/sites@2024-04-01' = {
   identity: {
     type: 'SystemAssigned'
   }
-  properties: {
+  properties: union({
     enabled: true
-    serverFarmId: hostingPlan.id
-    reserved: isReserved       
+    serverFarmId: hostingPlanId
+    reserved: isReserved
+  }, !useExistingAppServiceEnvironment ? {
     virtualNetworkSubnetId: functionAppSubnetId
-  }
+  } : {})
 }
 
-resource networkConfig 'Microsoft.Web/sites/networkConfig@2024-04-01' = {
+resource networkConfig 'Microsoft.Web/sites/networkConfig@2024-04-01' = if (!useExistingAppServiceEnvironment) { // LGIRS - ASEs have their own network config
   parent: logicApp
   name: 'virtualNetwork'
   properties: {
@@ -107,7 +132,7 @@ resource functionAppSiteConfig 'Microsoft.Web/sites/config@2024-04-01' = {
     scmMinTlsVersion: '1.2'
     minimumElasticInstanceCount: 1
     publicNetworkAccess: 'Enabled'  
-    functionsRuntimeScaleMonitoringEnabled: true
+    functionsRuntimeScaleMonitoringEnabled: !useExistingAppServiceEnvironment // LGIRS - only available for non-ASE deployment
     netFrameworkVersion: dotnetFrameworkVersion
     preWarmedInstanceCount: 1
     cors: {
@@ -167,6 +192,10 @@ resource sqlRoleAssignment 'Microsoft.DocumentDB/databaseAccounts/sqlRoleAssignm
     roleDefinitionId: '/${cosmosDbAccount.id}/sqlRoleDefinitions/${docDbAccNativeContributorRoleDefinitionId}'
     scope: cosmosDbAccount.id
   }
+  dependsOn: [
+    logicApp
+    cosmosDbAccount
+  ]
 }
 
 // Assign to Azure Event Hubs Data Owner role to the user-defined managed identity used by workloads
@@ -209,4 +238,8 @@ module azureMonitorConnectionAccess 'api-connection-access.bicep' = {
     location: location
     tags: tags
   }
+  // LGIRS - fix to ensure connection is created before access policy is applied, which was causing deployment failures
+  dependsOn: [
+    azureMonitorConnection
+  ]
 }

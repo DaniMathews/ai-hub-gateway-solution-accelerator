@@ -59,6 +59,10 @@ param streamingExportConfigContainerName string = 'streaming-export-config'
 @description('The throughput for the container')
 param throughput int = 400
 
+// LGIRS - support cheaper deployment option
+@description('Whether to enable the free tier for the Cosmos DB account - one per subscription')
+param enableFreeTier bool = false
+
 var consistencyPolicy = {
   Eventual: {
     defaultConsistencyLevel: 'Eventual'
@@ -121,6 +125,7 @@ resource account 'Microsoft.DocumentDB/databaseAccounts@2024-02-15-preview' = {
     consistencyPolicy: consistencyPolicy[defaultConsistencyLevel]
     locations: locations
     databaseAccountOfferType: 'Standard'
+    enableFreeTier: enableFreeTier // LGIRS
     enableAutomaticFailover: systemManagedFailover
     disableKeyBasedMetadataWriteAccess: true
     publicNetworkAccess: publicAccess

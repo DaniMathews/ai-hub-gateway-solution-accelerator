@@ -48,6 +48,7 @@ param existingLogAnalyticsSubscriptionId = readEnvironmentVariable('EXISTING_LOG
 param vnetName = readEnvironmentVariable('VNET_NAME', '')
 param useExistingVnet = bool(readEnvironmentVariable('USE_EXISTING_VNET', 'false'))
 param existingVnetRG = readEnvironmentVariable('EXISTING_VNET_RG', '')
+param useExistingVnetServiceEndpoints = bool(readEnvironmentVariable('USE_EXISTING_VNET_SERVICE_ENDPOINTS', 'false')) // LGIRS
 
 // Subnet names
 param apimSubnetName = readEnvironmentVariable('APIM_SUBNET_NAME', '')
@@ -166,6 +167,13 @@ param apimSku = readEnvironmentVariable('APIM_SKU', 'StandardV2')
 param apimSkuUnits = int(readEnvironmentVariable('APIM_SKU_UNITS', '1'))
 param eventHubCapacityUnits = int(readEnvironmentVariable('EVENTHUB_CAPACITY', '1'))
 param cosmosDbRUs = int(readEnvironmentVariable('COSMOS_DB_RUS', '400'))
+param cosmosDbEnableFreeTier = bool(readEnvironmentVariable('COSMOS_DB_ENABLE_FREE_TIER', 'false')) // LGIRS
+param logicAppsUseExistingAppServiceEnvironment = bool(readEnvironmentVariable('LOGIC_APPS_USE_EXISTING_APP_SERVICE_ENVIRONMENT', 'false')) // LGIRS
+param logicAppsExistingAppServiceEnvironmentSubscriptionId = readEnvironmentVariable('LOGIC_APPS_EXISTING_APP_SERVICE_ENVIRONMENT_SUBSCRIPTION_ID', '') // LGIRS
+param logicAppsExistingAppServiceEnvironmentResourceGroup = readEnvironmentVariable('LOGIC_APPS_EXISTING_APP_SERVICE_ENVIRONMENT_RESOURCE_GROUP', '') // LGIRS
+param logicAppsExistingAppServiceEnvironmentName = readEnvironmentVariable('LOGIC_APPS_EXISTING_APP_SERVICE_ENVIRONMENT_NAME', '') // LGIRS
+param logicAppsExistingAppServicePlanResourceGroup = readEnvironmentVariable('LOGIC_APPS_EXISTING_APP_SERVICE_PLAN_RESOURCE_GROUP', '') // LGIRS
+param logicAppsExistingAppServicePlanName = readEnvironmentVariable('LOGIC_APPS_EXISTING_APP_SERVICE_PLAN_NAME', '') // LGIRS
 param logicAppsSkuCapacityUnits = int(readEnvironmentVariable('LOGIC_APPS_SKU_CAPACITY_UNITS', '1'))
 param apicSku = readEnvironmentVariable('APIC_SKU', 'Free')
 param keyVaultSkuName = readEnvironmentVariable('KEY_VAULT_SKU_NAME', 'standard')

@@ -105,6 +105,10 @@ param useExistingVnet bool = false
 @description('Resource group containing the existing VNet (only used when useExistingVnet is true).')
 param existingVnetRG string = ''
 
+// LGIRS - support technician access to resource UIs
+@description('Technician (on-prem) IP addresses permitted to administer resources such as Key Vault. Production should be left empty, with access granted via jumpbox and/or ExpressRoute private peering. Non-prod may include on-prem IPs, with access restricted via NSG rules and/or Key Vault firewall rules')
+param technicianIpAddresses array = []
+
 // Subnet names
 @description('Subnet name for API Management in the VNet. Leave blank to use default naming conventions.')
 param apimSubnetName string = ''
@@ -313,6 +317,29 @@ param eventHubCapacityUnits int = 1
 
 @description('Cosmos DB throughput in Request Units (RUs).')
 param cosmosDbRUs int = 400
+
+// LGIRS - support cheaper Cosmos DB deployment option
+@description('Cosmos DB uses subscription\'s free tier discount') // only one available per subscription - see https://learn.microsoft.com/azure/cosmos-db/free-tier
+param cosmosDbEnableFreeTier bool = false
+
+// LGIRS - support Logic App deployment to existing App Service Environment, which has its own SKU and capacity settings
+@description('Use an existing App Service Environment (ASE) for the Logic App plan.')
+param logicAppsUseExistingAppServiceEnvironment bool = false
+
+@description('Subscription ID containing the existing App Service Environment (ASE). Leave empty to use current subscription.')
+param logicAppsExistingAppServiceEnvironmentSubscriptionId string = ''
+
+@description('Resource group containing the existing App Service Environment (ASE). Required when useExistingAppServiceEnvironment is true.')
+param logicAppsExistingAppServiceEnvironmentResourceGroup string = ''
+
+@description('Name of the existing App Service Environment (ASE). Required when useExistingAppServiceEnvironment is true.')
+param logicAppsExistingAppServiceEnvironmentName string = ''
+
+@description('If the usage Logic App is to be deployed to an existing App Service Plan, the name of its resource group.')
+param logicAppsExistingAppServicePlanResourceGroup string = ''
+
+@description('Name of App Service Plan for usage Logic App in the VNet. Leave blank to create a new one with default naming conventions.')
+param logicAppsExistingAppServicePlanName string = ''
 
 @description('Logic Apps SKU capacity units.')
 param logicAppsSkuCapacityUnits int = 1
@@ -849,6 +876,7 @@ module keyVault './modules/keyvault/keyvault.bicep' = {
     keyVaultName: !empty(keyVaultName) ? keyVaultName : '${abbrs.keyVaultVaults}${resourceToken}'
     location: location
     tags: tags
+    keyVaultExternalIpAddresses: technicianIpAddresses // LGIRS - support technician IP addresses in Key Vault firewall as a fallback access method
     skuName: keyVaultSkuName
     publicNetworkAccess: keyVaultExternalNetworkAccess
     vNetName: useExistingVnet ? vnetExisting.outputs.vnetName : vnet.outputs.vnetName
@@ -1043,6 +1071,7 @@ module cosmosDb './modules/cosmos-db/cosmos-db.bicep' = {
     accountName: !empty(cosmosDbAccountName) ? cosmosDbAccountName : '${abbrs.documentDBDatabaseAccounts}${resourceToken}'
     location: location
     tags: tags
+    enableFreeTier: cosmosDbEnableFreeTier // LGIRS
     vNetName: useExistingVnet ? vnetExisting.outputs.vnetName : vnet.outputs.vnetName
     cosmosDnsZoneName: cosmosDbPrivateDnsZoneName
     cosmosPrivateEndpointName: !empty(cosmosDbPrivateEndpointName) ? cosmosDbPrivateEndpointName : '${abbrs.documentDBDatabaseAccounts}pe-${resourceToken}'
@@ -1108,9 +1137,16 @@ module logicApp './modules/logicapp/logicapp.bicep' = {
     azdserviceName: 'usageProcessingLogicApp'   
     storageAccountName: storageAccount.outputs.storageAccountName
     applicationInsightsName: monitoring.outputs.funcApplicationInsightsName
+    // LGIRS - support deployment to existing ASE
+    useExistingAppServiceEnvironment: logicAppsUseExistingAppServiceEnvironment
+    existingAppServiceEnvironmentSubscriptionId: logicAppsExistingAppServiceEnvironmentSubscriptionId
+    existingAppServiceEnvironmentResourceGroupName: logicAppsExistingAppServiceEnvironmentResourceGroup
+    existingAppServiceEnvironmentName: logicAppsExistingAppServiceEnvironmentName
+    existingAppServicePlanResourceGroup: logicAppsExistingAppServicePlanResourceGroup
+    existingAppServicePlanName: logicAppsExistingAppServicePlanName
     skuFamily: 'WS'
     skuName: 'WS1'
-    skuCapaicty: logicAppsSkuCapacityUnits
+    skuCapacity: logicAppsSkuCapacityUnits // LGIRS - fix typo
     skuSize: 'WS1'
     skuTier: 'WorkflowStandard'
     isReserved: false

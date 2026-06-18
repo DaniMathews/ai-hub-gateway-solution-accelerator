@@ -45,6 +45,10 @@ param enabledForTemplateDeployment bool = true
 @description('Name of the Virtual Network')
 param vNetName string
 
+// LGIRS - support on-prem access to Key Vault
+@description('External IP addresses permitted to access the Key Vault')
+param keyVaultExternalIpAddresses array = []
+
 @description('Name of the private endpoint subnet')
 param privateEndpointSubnetName string
 
@@ -109,11 +113,15 @@ resource keyVault 'Microsoft.KeyVault/vaults@2025-05-01' = {
     enabledForDeployment: enabledForDeployment
     enabledForDiskEncryption: enabledForDiskEncryption
     enabledForTemplateDeployment: enabledForTemplateDeployment
-    publicNetworkAccess: publicNetworkAccess
+    publicNetworkAccess: !empty(keyVaultExternalIpAddresses) ? 'Enabled' : publicNetworkAccess // LGIRS - support on-prem access
     networkAcls: {
       defaultAction: 'Deny'
       bypass: 'AzureServices'
-      ipRules: []
+      ipRules: [ // LGIRS - support on-prem access
+        for item in keyVaultExternalIpAddresses: {
+          value: contains(string(item), '/') ? string(item) : '${string(item)}/32'
+        }
+      ]
       virtualNetworkRules: []
     }
   }

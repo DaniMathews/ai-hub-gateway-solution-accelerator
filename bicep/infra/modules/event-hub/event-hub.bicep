@@ -134,7 +134,7 @@ resource disasterRecovery 'Microsoft.EventHub/namespaces/disasterRecoveryConfigs
 }
 
 output eventHubNamespaceName string = eventHubNamespace.name
-output eventHubName string = 'ai-usage'
+output eventHubName string = eventHub.name
 output eventHubEndpoint string = eventHubNamespace.properties.serviceBusEndpoint
-output eventHubPIIName string = isPIIEnabled ? 'pii-usage' : ''
+output eventHubPIIName string = isPIIEnabled ? eventHubPII.name : ''
 output eventHubResourceId string = eventHubNamespace.id

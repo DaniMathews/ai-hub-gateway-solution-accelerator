@@ -112,7 +112,7 @@ resource vnet 'Microsoft.Network/virtualNetworks@2022-01-01' existing = {
   scope: resourceGroup(vNetRG)
 }
 
-resource subnet 'Microsoft.Network/virtualNetworks/subnets@2022-01-01' existing = {
+resource subnet 'Microsoft.Network/virtualNetworks/subnets@2022-01-01' existing = if (usePrivateEndpoint) { // LGIRS - only needed if using private endpoints
   name: privateEndpointSubnetName
   parent: vnet
 }

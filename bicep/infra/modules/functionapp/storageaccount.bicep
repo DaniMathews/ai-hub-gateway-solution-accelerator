@@ -114,6 +114,10 @@ module privateEndpointBlob '../networking/private-endpoint.bicep' = {
 
 module privateEndpointFile '../networking/private-endpoint.bicep' = {
   name: '${storageAccountName}-file-pe'
+  // LGIRS - fix to ensure endpoints created one at a time since exclusive lock required on storageAccount.id
+  dependsOn: [
+    privateEndpointBlob
+  ]
   params: {
     groupIds: [
       'file'
@@ -131,6 +135,10 @@ module privateEndpointFile '../networking/private-endpoint.bicep' = {
 
 module privateEndpointTable '../networking/private-endpoint.bicep' = {
   name: '${storageAccountName}-table-pe'
+  // LGIRS - fix to ensure endpoints created one at a time since exclusive lock required on storageAccount.id
+  dependsOn: [
+    privateEndpointFile
+  ]
   params: {
     groupIds: [
       'table'
@@ -148,6 +156,10 @@ module privateEndpointTable '../networking/private-endpoint.bicep' = {
 
 module privateEndpointQueue '../networking/private-endpoint.bicep' = {
   name: '${storageAccountName}-queue-pe'
+  // LGIRS - fix to ensure endpoints created one at a time since exclusive lock required on storageAccount.id
+  dependsOn: [
+    privateEndpointTable
+  ]
   params: {
     groupIds: [
       'queue'

@@ -34,7 +34,7 @@ resource vnet 'Microsoft.Network/virtualNetworks@2022-01-01' existing = {
 }
 
 // Get existing subnet
-resource subnet 'Microsoft.Network/virtualNetworks/subnets@2022-01-01' existing = {
+resource subnet 'Microsoft.Network/virtualNetworks/subnets@2022-01-01' existing = if (usePrivateLinkScope) { // LGIRS - only needed if using private link scope
   name: privateEndpointSubnetName
   parent: vnet
 }
