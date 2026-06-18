@@ -67,6 +67,26 @@ var setBackendPoolsFragmentXml = loadTextContent('./policies/frag-set-backend-po
 var updatedSetBackendPoolsFragmentXml = replace(setBackendPoolsFragmentXml, '//{backendPoolsCode}', backendPoolsCode)
 
 /**
+ * Generate metadata-config fragment for the Unified AI API
+ * Maps each model to its backend pool/direct backend + apiVersion + timeout
+ */
+
+// Build model-to-pool/backend mapping: for each model, find which pool or direct backend serves it
+// Uses the same allPools array that the backend-pools fragment uses
+var metadataModelsResult = reduce(llmBackendConfig, { code: '', seenModels: [] }, (acc, config) =>
+  reduce(config.supportedModels, acc, (modelAcc, model) => {
+    // Find the pool/backend name for this model from allPools
+    code: contains(modelAcc.seenModels, model.name) ? modelAcc.code : '${modelAcc.code}${length(modelAcc.seenModels) > 0 ? ',\n' : ''}\t\t\t\'${model.name}\': {\n\t\t\t\t\'backend\': \'${reduce(allPools, '', (poolAcc, pool) => contains(pool.supportedModels, model.name) ? pool.poolName : poolAcc)}\',\n\t\t\t\t\'apiVersion\': \'${model.?apiVersion ?? '2024-02-15-preview'}\',\n\t\t\t\t\'timeout\': ${model.?timeout ?? 120}${!empty(model.?inferenceApiVersion) ? ',\n\t\t\t\t\'inferenceApiVersion\': \'${model.inferenceApiVersion}\'' : ''}\n\t\t\t}'
+    seenModels: contains(modelAcc.seenModels, model.name) ? modelAcc.seenModels : union(modelAcc.seenModels, [model.name])
+  })
+)
+
+var metadataModelsCode = metadataModelsResult.code
+
+var metadataConfigFragmentXml = loadTextContent('./policies/frag-metadata-config.xml')
+var updatedMetadataConfigFragmentXml = replace(metadataConfigFragmentXml, '//{modelsConfigCode}', metadataModelsCode)
+
+/**
  * Enhanced authorization fragment that supports multiple backend types
  */
 var setBackendAuthorizationFragmentXml = loadTextContent('./policies/frag-set-backend-authorization.xml')
@@ -85,6 +105,38 @@ var updatedGetAvailableModelsFragmentXml = replace(getAvailableModelsFragmentTem
 
 resource apimService 'Microsoft.ApiManagement/service@2024-06-01-preview' existing = {
   name: apimServiceName
+}
+
+// Named values for AWS Bedrock authentication
+// Always created with safe defaults so the policy fragment compiles even when no aws-bedrock backends are configured.
+resource awsAccessKeyNamedValue 'Microsoft.ApiManagement/service/namedValues@2024-06-01-preview' = {
+  name: 'aws-access-key'
+  parent: apimService
+  properties: {
+    displayName: 'aws-access-key'
+    value: 'NOT_CONFIGURED'
+    secret: true
+  }
+}
+
+resource awsSecretKeyNamedValue 'Microsoft.ApiManagement/service/namedValues@2024-06-01-preview' = {
+  name: 'aws-secret-key'
+  parent: apimService
+  properties: {
+    displayName: 'aws-secret-key'
+    value: 'NOT_CONFIGURED'
+    secret: true
+  }
+}
+
+resource awsRegionNamedValue 'Microsoft.ApiManagement/service/namedValues@2024-06-01-preview' = {
+  name: 'aws-region'
+  parent: apimService
+  properties: {
+    displayName: 'aws-region'
+    value: 'NOT_CONFIGURED'
+    secret: false
+  }
 }
 
 /**
@@ -108,6 +160,11 @@ resource setBackendPoolsFragment 'Microsoft.ApiManagement/service/policyFragment
 resource setBackendAuthorizationFragment 'Microsoft.ApiManagement/service/policyFragments@2024-06-01-preview' = {
   name: 'set-backend-authorization'
   parent: apimService
+  dependsOn: [
+    awsAccessKeyNamedValue
+    awsSecretKeyNamedValue
+    awsRegionNamedValue
+  ]
   properties: {
     description: 'Authentication and routing configuration for different LLM backend types'
     format: 'rawxml'
@@ -181,6 +238,50 @@ resource validateModelAccessFragment 'Microsoft.ApiManagement/service/policyFrag
   }
 }
 
+/**
+ * Policy Fragment: Responses API ID Security (inbound)
+ * Enforces per-subscription ownership of OpenAI Responses API response_id values
+ * and hydrates routing for GET/DELETE operations on /responses/{id}.
+ */
+resource responsesIdSecurityFragment 'Microsoft.ApiManagement/service/policyFragments@2024-06-01-preview' = {
+  parent: apimService
+  name: 'responses-id-security'
+  properties: {
+    description: 'Inbound: validates response_id ownership and hydrates routing for /responses operations'
+    value: loadTextContent('./policies/frag-responses-id-security.xml')
+    format: 'rawxml'
+  }
+}
+
+/**
+ * Policy Fragment: Responses API ID Cache Store (outbound)
+ * Records response_id → "<subscriptionId>|<requestedModel>|<userId>" in APIM cache
+ * after a successful POST /responses, enabling subsequent ownership checks.
+ */
+resource responsesIdCacheStoreFragment 'Microsoft.ApiManagement/service/policyFragments@2024-06-01-preview' = {
+  parent: apimService
+  name: 'responses-id-cache-store'
+  properties: {
+    description: 'Outbound: caches response_id ownership for newly created Responses API objects'
+    value: loadTextContent('./policies/frag-responses-id-cache-store.xml')
+    format: 'rawxml'
+  }
+}
+
+/**
+ * Policy Fragment: Metadata Configuration
+ * Provides centralized configuration for the Unified AI API with dynamically generated model mappings
+ */
+resource metadataConfigFragment 'Microsoft.ApiManagement/service/policyFragments@2024-06-01-preview' = {
+  parent: apimService
+  name: 'metadata-config'
+  properties: {
+    description: 'Dynamically generated metadata configuration for Unified AI API routing'
+    value: updatedMetadataConfigFragmentXml
+    format: 'rawxml'
+  }
+}
+
 // ------------------
 //    OUTPUTS
 // ------------------
@@ -199,6 +300,15 @@ output getAvailableModelsFragmentName string = getAvailableModelsFragment.name
 
 @description('Name of the validate-model-access fragment')
 output validateModelAccessFragmentName string = validateModelAccessFragment.name
+
+@description('Name of the metadata-config fragment')
+output metadataConfigFragmentName string = metadataConfigFragment.name
+
+@description('Name of the responses-id-security fragment')
+output responsesIdSecurityFragmentName string = responsesIdSecurityFragment.name
+
+@description('Name of the responses-id-cache-store fragment')
+output responsesIdCacheStoreFragmentName string = responsesIdCacheStoreFragment.name
 
 @description('Generated backend pools configuration code')
 output backendPoolsCode string = backendPoolsCode

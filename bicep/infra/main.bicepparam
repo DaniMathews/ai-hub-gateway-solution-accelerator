@@ -29,8 +29,6 @@ param eventHubNamespaceName = readEnvironmentVariable('EVENTHUB_NAMESPACE_NAME',
 param cosmosDbAccountName = readEnvironmentVariable('COSMOS_DB_ACCOUNT_NAME', '')
 param usageProcessingLogicAppName = readEnvironmentVariable('USAGE_PROCESSING_LOGIC_APP_NAME', '')
 param storageAccountName = readEnvironmentVariable('STORAGE_ACCOUNT_NAME', '')
-param languageServiceName = readEnvironmentVariable('LANGUAGE_SERVICE_NAME', '')
-param aiContentSafetyName = readEnvironmentVariable('AI_CONTENT_SAFETY_NAME', '')
 param apicServiceName = readEnvironmentVariable('APIC_SERVICE_NAME', '')
 param aiFoundryResourceName = readEnvironmentVariable('AI_FOUNDRY_RESOURCE_NAME', '')
 param keyVaultName = readEnvironmentVariable('KEY_VAULT_NAME', '')
@@ -55,11 +53,13 @@ param existingVnetRG = readEnvironmentVariable('EXISTING_VNET_RG', '')
 param apimSubnetName = readEnvironmentVariable('APIM_SUBNET_NAME', '')
 param privateEndpointSubnetName = readEnvironmentVariable('PRIVATE_ENDPOINT_SUBNET_NAME', '')
 param functionAppSubnetName = readEnvironmentVariable('FUNCTION_APP_SUBNET_NAME', '')
+param agentSubnetName = readEnvironmentVariable('AGENT_SUBNET_NAME', '')
 
 // NSG & route table names
 param apimNsgName = readEnvironmentVariable('APIM_NSG_NAME', '')
 param privateEndpointNsgName = readEnvironmentVariable('PRIVATE_ENDPOINT_NSG_NAME', '')
 param functionAppNsgName = readEnvironmentVariable('FUNCTION_APP_NSG_NAME', '')
+param agentSubnetNsgName = readEnvironmentVariable('AGENT_SUBNET_NSG_NAME', '')
 param apimRouteTableName = readEnvironmentVariable('APIM_ROUTE_TABLE_NAME', '')
 
 // VNet address space and subnet prefixes
@@ -67,6 +67,7 @@ param vnetAddressPrefix = readEnvironmentVariable('VNET_ADDRESS_PREFIX', '10.170
 param apimSubnetPrefix = readEnvironmentVariable('APIM_SUBNET_PREFIX', '10.170.0.0/26')
 param privateEndpointSubnetPrefix = readEnvironmentVariable('PRIVATE_ENDPOINT_SUBNET_PREFIX', '10.170.0.64/26')
 param functionAppSubnetPrefix = readEnvironmentVariable('FUNCTION_APP_SUBNET_PREFIX', '10.170.0.128/26')
+param agentSubnetPrefix = readEnvironmentVariable('AGENT_SUBNET_PREFIX', '10.170.0.192/26')
 
 // DNS Zone parameters (legacy approach - single subscription/RG)
 param dnsZoneRG = readEnvironmentVariable('DNS_ZONE_RG', '')
@@ -98,8 +99,6 @@ param storageTablePrivateEndpointName = readEnvironmentVariable('STORAGE_TABLE_P
 param storageQueuePrivateEndpointName = readEnvironmentVariable('STORAGE_QUEUE_PE_NAME', '')
 param cosmosDbPrivateEndpointName = readEnvironmentVariable('COSMOS_DB_PE_NAME', '')
 param eventHubPrivateEndpointName = readEnvironmentVariable('EVENTHUB_PE_NAME', '')
-param languageServicePrivateEndpointName = readEnvironmentVariable('LANGUAGE_SERVICE_PE_NAME', '')
-param aiContentSafetyPrivateEndpointName = readEnvironmentVariable('AI_CONTENT_SAFETY_PE_NAME', '')
 param apimV2PrivateEndpointName = readEnvironmentVariable('APIM_V2_PE_NAME', '')
 param aiFoundryPrivateEndpointName = readEnvironmentVariable('AI_FOUNDRY_PE_NAME', '')
 param keyVaultPrivateEndpointName = readEnvironmentVariable('KEY_VAULT_PE_NAME', '')
@@ -111,8 +110,6 @@ param apimV2UsePrivateEndpoint = bool(readEnvironmentVariable('APIM_V2_USE_PRIVA
 param apimV2PublicNetworkAccess = bool(readEnvironmentVariable('APIM_V2_PUBLIC_NETWORK_ACCESS', 'true'))
 param cosmosDbPublicAccess = readEnvironmentVariable('COSMOS_DB_PUBLIC_ACCESS', 'Disabled')
 param eventHubNetworkAccess = readEnvironmentVariable('EVENTHUB_NETWORK_ACCESS', 'Enabled')
-param languageServiceExternalNetworkAccess = readEnvironmentVariable('LANGUAGE_SERVICE_EXTERNAL_NETWORK_ACCESS', 'Disabled')
-param aiContentSafetyExternalNetworkAccess = readEnvironmentVariable('AI_CONTENT_SAFETY_EXTERNAL_NETWORK_ACCESS', 'Disabled')
 param aiFoundryExternalNetworkAccess = readEnvironmentVariable('AI_FOUNDRY_EXTERNAL_NETWORK_ACCESS', 'Disabled')
 param keyVaultExternalNetworkAccess = readEnvironmentVariable('KEY_VAULT_EXTERNAL_NETWORK_ACCESS', 'Disabled')
 param useAzureMonitorPrivateLinkScope = bool(readEnvironmentVariable('USE_AZURE_MONITOR_PRIVATE_LINK_SCOPE', 'false'))
@@ -123,14 +120,14 @@ param redisPublicNetworkAccess = readEnvironmentVariable('REDIS_PUBLIC_NETWORK_A
 // ============================================================================
 param createAppInsightsDashboards = bool(readEnvironmentVariable('CREATE_DASHBOARDS', 'false'))
 param enableAIModelInference = bool(readEnvironmentVariable('ENABLE_AI_MODEL_INFERENCE', 'true'))
-param enableDocumentIntelligence = bool(readEnvironmentVariable('ENABLE_DOCUMENT_INTELLIGENCE', 'true'))
-param enableAzureAISearch = bool(readEnvironmentVariable('ENABLE_AZURE_AI_SEARCH', 'true'))
+param enableDocumentIntelligence = bool(readEnvironmentVariable('ENABLE_DOCUMENT_INTELLIGENCE', 'false'))
+param enableAzureAISearch = bool(readEnvironmentVariable('ENABLE_AZURE_AI_SEARCH', 'false'))
 param enableAIGatewayPiiRedaction = bool(readEnvironmentVariable('ENABLE_PII_REDACTION', 'true'))
 param enableOpenAIRealtime = bool(readEnvironmentVariable('ENABLE_OPENAI_REALTIME', 'true'))
-param enableAIFoundry = bool(readEnvironmentVariable('ENABLE_AI_FOUNDRY', 'true'))
 param entraAuth = bool(readEnvironmentVariable('AZURE_ENTRA_AUTH', 'false'))
 param enableAPICenter = bool(readEnvironmentVariable('ENABLE_API_CENTER', 'false'))
 param enableManagedRedis = bool(readEnvironmentVariable('ENABLE_MANAGED_REDIS', 'true'))
+param enableUnifiedAiApi = bool(readEnvironmentVariable('ENABLE_UNIFIED_AI_API', 'true'))
 
 // ============================================================================
 // INFERENCE API DIAGNOSTIC LOG SETTINGS
@@ -170,12 +167,10 @@ param apimSkuUnits = int(readEnvironmentVariable('APIM_SKU_UNITS', '1'))
 param eventHubCapacityUnits = int(readEnvironmentVariable('EVENTHUB_CAPACITY', '1'))
 param cosmosDbRUs = int(readEnvironmentVariable('COSMOS_DB_RUS', '400'))
 param logicAppsSkuCapacityUnits = int(readEnvironmentVariable('LOGIC_APPS_SKU_CAPACITY_UNITS', '1'))
-param languageServiceSkuName = readEnvironmentVariable('LANGUAGE_SERVICE_SKU_NAME', 'S')
-param aiContentSafetySkuName = readEnvironmentVariable('AI_CONTENT_SAFETY_SKU_NAME', 'S0')
 param apicSku = readEnvironmentVariable('APIC_SKU', 'Free')
 param keyVaultSkuName = readEnvironmentVariable('KEY_VAULT_SKU_NAME', 'standard')
 param redisSkuName = readEnvironmentVariable('REDIS_SKU_NAME', 'Balanced_B1')
-param redisSkuCapacity = int(readEnvironmentVariable('REDIS_SKU_CAPACITY', '2'))
+param redisSkuCapacity = int(readEnvironmentVariable('REDIS_SKU_CAPACITY', '1'))
 
 // ============================================================================
 // ACCELERATOR SPECIFIC PARAMETERS
@@ -187,6 +182,9 @@ param logicContentShareName = readEnvironmentVariable('LOGIC_CONTENT_SHARE_NAME'
 param aiSearchInstances = []
 
 // AI Foundry instances configuration array
+// Per-instance `networkInjectionEnabled` opts the specific Foundry into (or out of)
+// agent network injection. Omit it to inherit the global foundryNetworkInjectionEnabled flag.
+// Agent subnet is regional - typically only enable injection for the instance in the VNet's region.
 param aiFoundryInstances = [
   {
     name: readEnvironmentVariable('AI_FOUNDRY_RESOURCE_NAME', '')
@@ -203,25 +201,11 @@ param aiFoundryInstances = [
 ]
 
 // AI Foundry model deployments configuration
+// Each model can optionally include metadata for the Unified AI API routing:
+//   - apiVersion: API version for OpenAI-type requests (default: '2024-02-15-preview')
+//   - timeout: Request timeout in seconds (default: 120)
+//   - inferenceApiVersion: API version for inference-type requests (e.g., '2024-05-01-preview' for non-OpenAI models)
 param aiFoundryModelsConfig = [
-  {
-    name: 'gpt-4o-mini'
-    publisher: 'OpenAI'
-    version: '2024-07-18'
-    sku: 'GlobalStandard'
-    capacity: 100
-    retirementDate: '2026-09-30'
-    aiserviceIndex: 0
-  }
-  {
-    name: 'gpt-4o'
-    publisher: 'OpenAI'
-    version: '2024-11-20'
-    sku: 'GlobalStandard'
-    capacity: 100
-    retirementDate: '2026-09-30'
-    aiserviceIndex: 0
-  }
   {
     name: 'gpt-4.1'
     publisher: 'OpenAI'
@@ -229,6 +213,8 @@ param aiFoundryModelsConfig = [
     sku: 'GlobalStandard'
     capacity: 100
     retirementDate: '2026-10-14'
+    apiVersion: '2025-04-01-preview'
+    timeout: 180
     aiserviceIndex: 0
   }
   {
@@ -238,15 +224,7 @@ param aiFoundryModelsConfig = [
     sku: 'GlobalStandard'
     capacity: 1
     retirementDate: '2099-12-30'
-    aiserviceIndex: 0
-  }
-  {
-    name: 'Phi-4'
-    publisher: 'Microsoft'
-    version: '3'
-    sku: 'GlobalStandard'
-    capacity: 1
-    retirementDate: '2099-12-30'
+    inferenceApiVersion: '2024-05-01-preview'
     aiserviceIndex: 0
   }
   {
@@ -259,9 +237,58 @@ param aiFoundryModelsConfig = [
     aiserviceIndex: 0
   }
   {
-    name: 'gpt-5'
+    name: 'Mistral-Large-3'
+    publisher: 'Mistral AI'
+    version: '1'
+    sku: 'GlobalStandard'
+    capacity: 100
+    retirementDate: '2099-12-30'
+    aiserviceIndex: 0
+  }
+  {
+    name: 'gpt-5.4-mini'
     publisher: 'OpenAI'
-    version: '2025-08-07'
+    version: '2026-03-17'
+    sku: 'GlobalStandard'
+    capacity: 100
+    retirementDate: '2026-09-30'
+    aiserviceIndex: 0
+  }
+  {
+    name: 'Phi-4'
+    publisher: 'Microsoft'
+    version: '7'
+    sku: 'GlobalStandard'
+    capacity: 1
+    retirementDate: '2099-10-14'
+    apiVersion: '2025-04-01-preview'
+    timeout: 180
+    aiserviceIndex: 0
+  }
+  {
+    name: 'Phi-4'
+    publisher: 'Microsoft'
+    version: '7'
+    sku: 'GlobalStandard'
+    capacity: 1
+    retirementDate: '2099-10-14'
+    apiVersion: '2025-04-01-preview'
+    timeout: 180
+    aiserviceIndex: 1
+  }
+  {
+    name: 'gpt-5.4-mini'
+    publisher: 'OpenAI'
+    version: '2026-03-17'
+    sku: 'GlobalStandard'
+    capacity: 100
+    retirementDate: '2026-09-30'
+    aiserviceIndex: 1
+  }
+  {
+    name: 'gpt-5.2'
+    publisher: 'OpenAI'
+    version: '2025-12-11'
     sku: 'GlobalStandard'
     capacity: 100
     retirementDate: '2027-02-05'
@@ -274,6 +301,7 @@ param aiFoundryModelsConfig = [
     sku: 'GlobalStandard'
     capacity: 1
     retirementDate: '2099-12-30'
+    inferenceApiVersion: '2024-05-01-preview'
     aiserviceIndex: 1
   }
   {
@@ -293,6 +321,10 @@ param primaryFoundryEmbeddingModelName = readEnvironmentVariable('PRIMARY_FOUNDR
 // ============================================================================
 // ENTRA ID AUTHENTICATION
 // ============================================================================
+// Values are populated by the entra-id-setup script (bicep/infra/entra-id-setup/setup.ps1)
+// which creates the App Registration and stores values as azd environment variables.
+// For bring-your-own app registrations, set these values directly via 'azd env set'.
 param entraTenantId = readEnvironmentVariable('AZURE_TENANT_ID', '')
 param entraClientId = readEnvironmentVariable('AZURE_CLIENT_ID', '')
 param entraAudience = readEnvironmentVariable('AZURE_AUDIENCE', '')
+param entraClientSecret = readEnvironmentVariable('ENTRA_CLIENT_SECRET', '')

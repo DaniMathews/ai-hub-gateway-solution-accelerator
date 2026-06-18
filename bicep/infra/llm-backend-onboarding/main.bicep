@@ -32,9 +32,12 @@ param apimManagedIdentity object
   description: '''
   Each backend object should have:
   - backendId: Unique identifier (used in APIM backend resource name)
-  - backendType: 'ai-foundry' | 'azure-openai' | 'external'
+  - backendType: 'ai-foundry' | 'azure-openai' | 'aws-bedrock' | 'aws-bedrock-mantle' | 'gemini' | 'gemini-openai' | 'anthropic' | 'external'
   - endpoint: Base URL of the LLM service (e.g., https://xxx.services.ai.azure.com/models)
-  - authScheme: 'managedIdentity' | 'apiKey' | 'token'
+  - authScheme: 'managedIdentity' | 'apiKey' | 'token' (legacy, replaced by authType)
+  - authType: (Optional) 'managed-identity' | 'aws-sigv4' | 'api-key-bearer' | 'api-key-header' | 'api-key-gemini' | 'api-key-anthropic' | 'none'
+  - authConfig: (Optional) { namedValueKey: 'apim-named-value-name', keyVaultSecretUri?: 'https://kv.vault.azure.net/secrets/...', secretValue?: '<plain text, testing only>' }
+                For api-key-* auth types, the named value resolves the credential at runtime. Prefer keyVaultSecretUri (managed by Key Vault, audited, rotatable). Use secretValue only for short-lived testing.
   - supportedModels: Array of model objects, each with:
     - name: Model name (required)
     - sku: (Optional) SKU name for deployment, default 'Standard'
@@ -42,6 +45,9 @@ param apimManagedIdentity object
     - modelFormat: (Optional) Model format identifier, default 'OpenAI'
     - modelVersion: (Optional) Version of the model, default '1'
     - retirementDate: (Optional) Retirement date for the model in YYYY-MM-DD format
+    - apiVersion: (Optional) API version for OpenAI-type requests, default '2024-02-15-preview'
+    - timeout: (Optional) Request timeout in seconds, default 120
+    - inferenceApiVersion: (Optional) API version for inference-type requests (e.g., '2024-05-01-preview')
   - priority: (Optional) 1-5, default 1 (lower = higher priority)
   - weight: (Optional) 1-1000, default 100 (higher = more traffic)
   '''
@@ -54,6 +60,7 @@ param apimManagedIdentity object
       supportedModels: [
         { name: 'gpt-4o', sku: 'GlobalStandard', capacity: 100, modelFormat: 'OpenAI', modelVersion: '2024-11-20', retirementDate: '2026-09-30' }
         { name: 'gpt-4o-mini', sku: 'GlobalStandard', capacity: 100, modelFormat: 'OpenAI', modelVersion: '2024-07-18', retirementDate: '2026-09-30' }
+        { name: 'Phi-4', sku: 'GlobalStandard', capacity: 1, modelFormat: 'Microsoft', modelVersion: '3', inferenceApiVersion: '2024-05-01-preview' }
       ]
       priority: 1
       weight: 100
@@ -64,6 +71,35 @@ param llmBackendConfig array
 
 @description('Whether to configure circuit breaker for backends (recommended for production)')
 param configureCircuitBreaker bool = true
+
+@description('AWS access key ID for Amazon Bedrock authentication (required when using aws-bedrock backends)')
+@secure()
+param awsAccessKey string = ''
+
+@description('AWS secret access key for Amazon Bedrock authentication (required when using aws-bedrock backends)')
+@secure()
+param awsSecretKey string = ''
+
+@description('AWS region for Amazon Bedrock (e.g., us-east-1)')
+param awsRegion string = ''
+
+@description('Anthropic API version sent in the anthropic-version header for Anthropic backends (Messages API)')
+param anthropicVersion string = '2023-06-01'
+
+@description('Model alias definitions for grouping models under a single alias name')
+@metadata({
+  description: '''
+  Each alias object should have:
+  - name: Alias name that clients use (e.g., "gpt-advanced")
+  - models: Array of model names included in the alias (must exist in llmBackendConfig)
+  - strategy: (Optional) "priority" (default, first available) or "weighted" (round-robin)
+  - weights: (Optional) Array of weights matching models array (required when strategy is "weighted")
+  '''
+})
+param modelAliases array = []
+
+@description('Key Vault name for storing backend credentials (required when backends use api-key auth with Key Vault references)')
+param keyVaultName string = ''
 
 // @description('Whether to deploy the Universal LLM API (set to false if API already exists)')
 // param deployUniversalLlmApi bool = true
@@ -111,6 +147,7 @@ module llmBackends 'modules/llm-backends.bicep' = {
     managedIdentityClientId: managedIdentity.properties.clientId
     llmBackendConfig: llmBackendConfig
     configureCircuitBreaker: configureCircuitBreaker
+    anthropicVersion: anthropicVersion
   }
 }
 
@@ -139,6 +176,11 @@ module llmPolicyFragments 'modules/llm-policy-fragments.bicep' = {
     policyFragmentConfig: llmBackendPools.outputs.policyFragmentConfig
     managedIdentityClientId: managedIdentity.properties.clientId
     llmBackendConfig: llmBackendConfig
+    awsAccessKey: awsAccessKey
+    awsSecretKey: awsSecretKey
+    awsRegion: awsRegion
+    modelAliases: modelAliases
+    keyVaultName: keyVaultName
   }
 }
 
@@ -189,4 +231,9 @@ output policyFragments object = {
   setBackendAuthorization: llmPolicyFragments.outputs.setBackendAuthorizationFragmentName
   setTargetBackendPool: llmPolicyFragments.outputs.setTargetBackendPoolFragmentName
   getAvailableModels: llmPolicyFragments.outputs.getAvailableModelsFragmentName
+  validateModelAccess: llmPolicyFragments.outputs.validateModelAccessFragmentName
+  metadataConfig: llmPolicyFragments.outputs.metadataConfigFragmentName
+  resolveModelAlias: llmPolicyFragments.outputs.resolveModelAliasFragmentName
+  responsesIdSecurity: llmPolicyFragments.outputs.responsesIdSecurityFragmentName
+  responsesIdCacheStore: llmPolicyFragments.outputs.responsesIdCacheStoreFragmentName
 }

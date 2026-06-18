@@ -40,6 +40,8 @@ param foundry object = {
 param foundryConfig object = {
   // Connection naming: if empty, uses useCase naming convention
   connectionNamePrefix: ''
+  // Foundry connection category: ApiManagement or ModelGateway
+  connectionCategory: 'ApiManagement'
   // Whether deployment name is in URL path (true) or request body (false)
   deploymentInPath: 'false'
   // Share connection to all project users
@@ -53,7 +55,7 @@ param foundryConfig object = {
   // Custom discovery endpoints (optional - leave empty for APIM defaults)
   listModelsEndpoint: ''
   getModelEndpoint: ''
-  deploymentProvider: ''
+  deploymentProvider: 'AzureOpenAI'
   // Custom headers for requests
   customHeaders: {}
   // Custom auth configuration
@@ -130,7 +132,7 @@ resource foundryRg 'Microsoft.Resources/resourceGroups@2022-09-01' existing = if
 }
 
 // Generate connection name based on config or use case naming
-var foundryConnectionPrefix = !empty(foundryConfig.connectionNamePrefix) ? foundryConfig.connectionNamePrefix : '${useCase.businessUnit}-${useCase.useCaseName}-${useCase.environment}'
+var foundryConnectionPrefix = !empty(foundryConfig.connectionNamePrefix) ? foundryConfig.connectionNamePrefix : 'Hub-${useCase.businessUnit}-${useCase.useCaseName}-${useCase.environment}'
 
 module foundryConnections 'modules/foundryConnection.bicep' = [for (s, i) in services: if (useTargetFoundry) {
   name: 'foundry-${s.code}-${productPostfix}'
@@ -141,6 +143,7 @@ module foundryConnections 'modules/foundryConnection.bicep' = [for (s, i) in ser
     connectionName: '${foundryConnectionPrefix}-${s.code}'
     targetUrl: '${apimSvc.properties.gatewayUrl}/${onboard[i].outputs.apiPath}'
     apimSubscriptionKey: onboard[i].outputs.subscriptionPrimaryKey
+    connectionCategory: foundryConfig.?connectionCategory ?? 'ApiManagement'
     isSharedToAll: foundryConfig.?isSharedToAll ?? false
     deploymentInPath: foundryConfig.?deploymentInPath ?? 'false'
     inferenceAPIVersion: foundryConfig.?inferenceAPIVersion ?? ''

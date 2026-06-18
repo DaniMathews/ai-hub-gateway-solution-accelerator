@@ -38,6 +38,10 @@ param apimSubscriptionKey string
 @description('Authentication type (ApiKey is currently supported)')
 param authType string = 'ApiKey'
 
+@allowed(['ApiManagement', 'ModelGateway'])
+@description('Foundry connection category. Use ModelGateway for portal-compatible model gateway connections.')
+param connectionCategory string = 'ApiManagement'
+
 @description('Share connection to all project users')
 param isSharedToAll bool = false
 
@@ -110,9 +114,10 @@ var staticModelsMetadata = hasStaticModels && !hasCustomDiscovery ? {
   models: string(staticModels)
 } : {}
 
-var customHeadersMetadata = hasCustomHeaders ? {
-  customHeaders: string(customHeaders)
-} : {}
+// Always emit customHeaders (portal requires this field even if empty)
+var customHeadersMetadata = {
+  customHeaders: hasCustomHeaders ? string(customHeaders) : '{}'
+}
 
 var authConfigMetadata = hasAuthConfig ? {
   authConfig: string(authConfig)
@@ -132,11 +137,11 @@ var metadata = union(
 // EXISTING RESOURCES
 // ============================================================================
 
-resource aiFoundry 'Microsoft.CognitiveServices/accounts@2025-04-01-preview' existing = {
+resource aiFoundry 'Microsoft.CognitiveServices/accounts@2026-03-01' existing = {
   name: aiFoundryAccountName
 }
 
-resource aiProject 'Microsoft.CognitiveServices/accounts/projects@2025-04-01-preview' existing = {
+resource aiProject 'Microsoft.CognitiveServices/accounts/projects@2026-03-01' existing = {
   name: aiFoundryProjectName
   parent: aiFoundry
 }
@@ -145,11 +150,11 @@ resource aiProject 'Microsoft.CognitiveServices/accounts/projects@2025-04-01-pre
 // APIM CONNECTION RESOURCE
 // ============================================================================
 
-resource apimConnection 'Microsoft.CognitiveServices/accounts/projects/connections@2025-04-01-preview' = {
+resource apimConnection 'Microsoft.CognitiveServices/accounts/projects/connections@2026-03-01' = {
   name: connectionName
   parent: aiProject
   properties: {
-    category: 'ApiManagement'
+    category: connectionCategory
     target: targetUrl
     authType: authType
     isSharedToAll: isSharedToAll

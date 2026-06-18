@@ -103,6 +103,7 @@ Then register all required resource providers:
 
 ```bash
 # Register all required providers
+az provider register --namespace Microsoft.AlertsManagement
 az provider register --namespace Microsoft.ApiCenter
 az provider register --namespace Microsoft.ApiManagement
 az provider register --namespace Microsoft.App
@@ -219,7 +220,6 @@ param useExistingVnet = false
 param useExistingLogAnalytics = false
 
 // Features
-param enableAIFoundry = true
 param enableAPICenter = true
 ```
 
@@ -466,7 +466,14 @@ Detailed guide: [Bring Your Own Network](./network-approach.md)
 
 #### Microsoft Foundry Configuration
 
-AI Citadel can deploy **Microsoft Foundry instances** with model deployments as part of the primary landing zone provisioning.
+AI Citadel always deploys at least **one Microsoft Foundry resource** — the **primary** Foundry (the first entry in `aiFoundryInstances`). This primary Foundry is mandatory because the AI Citadel Gateway re-uses its **AI Services unified endpoint** (`https://<foundry>.cognitiveservices.azure.com/`) to power:
+
+- **Content Safety** policies (`llm-content-safety` / `content-safety-backend` in APIM)
+- **PII detection / anonymization** policies (`piiServiceUrl` named value in APIM)
+
+Additional entries can be added to deploy **extra Foundry resources in different regions** for added LLM capacity, geo-redundancy, or access to region-restricted models. The primary Foundry can also host LLM deployments alongside the additional ones — there is no separation between "core capability" and "LLM" Foundry roles.
+
+> **Note:** The previous standalone Azure Language Service and Azure AI Content Safety resources are no longer provisioned. Their capabilities are consumed directly from the primary Foundry account (AI Services kind), removing two private endpoints and simplifying RBAC and DNS configuration.
 
 Input parameters are separated into two parts:
 
@@ -790,7 +797,43 @@ param appInsightsLogSettings = {
 
 #### Entra ID Authentication
 
-**Production Requirement:** Enable JWT-based authentication
+JWT-based authentication adds a security layer on top of subscription API keys. When enabled, the gateway validates JWT tokens from Microsoft Entra ID before forwarding requests to backends.
+
+**Automatic Provisioning (Recommended):**
+
+Set `entraAuth` to `true` and leave `entraClientId` empty. After deploying the landing zone, run the standalone Entra ID setup script which creates the app registration **and configures APIM directly** — no redeployment needed:
+
+```bash
+# 1. Deploy the gateway infrastructure (creates Key Vault, APIM, etc.)
+azd up
+
+# 2. Run Entra ID setup (creates app registration + configures APIM named values)
+cd bicep/infra/entra-id-setup
+pwsh ./setup.ps1
+
+# Done! APIM is now JWT-ready. No redeployment needed.
+```
+
+The setup script automatically:
+1. Creates an Entra ID App Registration with OAuth2 scopes and app roles
+2. Creates a service principal
+3. Generates a client secret and stores it in Key Vault as `ENTRA-APP-CLIENT-SECRET`
+4. Configures APIM JWT named values directly: `JWT-TenantId`, `JWT-AppRegistrationId`, `JWT-Issuer`, `JWT-OpenIdConfigUrl`
+5. Stores `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_AUDIENCE` as azd environment variables for future deployments
+
+> **Prerequisite:** The deploying user must have `Application.ReadWrite.All` or the `Application Developer` role in Entra ID.
+
+See [Entra ID Setup README](../bicep/infra/entra-id-setup/README.md) for full details.
+
+```bicep
+param entraAuth = true
+// Leave these empty for auto-provisioning:
+param entraTenantId = ''
+param entraClientId = ''
+param entraAudience = ''
+```
+
+**Manual Configuration (Bring Your Own App Registration):**
 
 ```bicep
 param entraAuth = true
@@ -799,13 +842,42 @@ param entraClientId = '11111111-2222-3333-4444-555555555555'
 param entraAudience = 'api://citadel-gateway'
 ```
 
-**Setup Steps:**
-1. Register App in Entra ID
-2. Configure API permissions
-3. Create client secret (store in Key Vault)
-4. Update parameter file
+**How JWT Authentication Works Across APIs:**
 
-Guide: [Entra ID Authentication](.)
+- JWT named values are deployed when `entraAuth=true`, supporting all APIs (Azure OpenAI, Universal LLM, Unified AI)
+- API Key authentication is always required (subscription-based)
+- JWT validation is optional per access contract — enable it per product by setting `jwtAuth.enabled: true` in the access contract JSON
+- The `security-handler` policy fragment handles both API Key and JWT validation
+- When a product requires JWT, clients must send both `api-key` and `Authorization: Bearer {token}` headers
+
+**Access Contract JWT Integration:**
+
+To require JWT authentication for a specific access contract, include the `jwtAuth` policy in the contract JSON:
+
+```json
+{
+  "policies": {
+    "jwtAuth": { "enabled": true },
+    "modelAccess": { "enabled": true, "allowedModels": ["gpt-4o"] }
+  }
+}
+```
+
+**Acquiring a JWT Token (Client Credentials Flow):**
+
+```http
+POST https://login.microsoftonline.com/{tenant-id}/oauth2/v2.0/token
+Content-Type: application/x-www-form-urlencoded
+
+grant_type=client_credentials
+&client_id={entra-app-client-id}
+&client_secret={entra-app-client-secret}
+&scope={audience}/.default
+```
+
+**Validation:** See the [JWT Access Contract Validation Notebook](../test/citadel-jwt-access-contract-tests.ipynb) for end-to-end testing.
+
+Guide: [Entra ID Authentication](./entraid-auth-validation.md)
 
 #### Network Security
 
@@ -821,8 +893,6 @@ param apimV2PublicNetworkAccess = false
 // Service Network Access
 param cosmosDbPublicAccess = 'Disabled'
 param eventHubNetworkAccess = 'Disabled'  // Enable during deployment, disable after for APIM Standardv2 and PremiumV2 SKUs
-param languageServiceExternalNetworkAccess = 'Disabled'
-param aiContentSafetyExternalNetworkAccess = 'Disabled'
 
 ...
 
@@ -940,7 +1010,7 @@ Visit the [Deployment Troubleshooting Guide](./#) for common issues and resoluti
 
 - **Deploy LLM Backends**
    - [Onboard Existing LLMs](./LLM-Backend-Onboarding-Guide.md)
-   - [LLM Routing Architecture](./llm-routing-architecture.md)
+   - [LLM Access Guide](./llm-access-guide.md)
 
 ---
 

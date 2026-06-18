@@ -18,6 +18,9 @@ param managedIdentityName string
 param clientAppId string = ' '
 param tenantId string = tenant().tenantId
 param audience string = 'https://cognitiveservices.azure.com/.default'
+
+@description('Name of the Key Vault used to store APIM-managed secrets (e.g. the Application Insights connection string consumed by the APIM logger). The vault must already exist and grant the APIM user-assigned managed identity the Key Vault Secrets User role.')
+param keyVaultName string
 param eventHubName string
 param eventHubEndpoint string
 
@@ -31,7 +34,7 @@ param enableAIModelInference bool = true
 
 param enableOpenAIRealtime bool = true
 
-param enableDocumentIntelligence bool = true
+param enableDocumentIntelligence bool = false
 
 param enablePIIAnonymization bool = true
 
@@ -54,12 +57,7 @@ param apimV2PublicNetworkAccess bool = true
 // New parameter: Direct DNS zone resource ID (preferred over dnsZoneRG/dnsSubscriptionId)
 param dnsZoneResourceId string = ''
 
-// API Center Integration
-param enableAPICenter bool = true
-param apiCenterServiceName string
-param apiCenterWorkspaceName string = 'default'
-param apiCenterMCPEnvironment string = 'mcp-dev'
-param apiCenterAPIEnvironment string = 'api-dev'
+
 
 // MCP Samples (Weather API, Weather MCP, MS Learn MCP)
 param isMCPSampleDeployed bool = false
@@ -77,7 +75,16 @@ param isMCPSampleDeployed bool = false
  * - backendType: Type of backend ('ai-foundry', 'azure-openai', 'external')
  * - endpoint: Base URL for the backend service
  * - authScheme: Authentication method ('managedIdentity', 'apiKey', 'token')
- * - supportedModels: Array of model names this backend can serve
+ * - supportedModels: Array of model objects with:
+ *     - name: Model name (required)
+ *     - sku: (Optional) SKU name for deployment (default: 'Standard')
+ *     - capacity: (Optional) Capacity/TPM quota (default: 100)
+ *     - modelFormat: (Optional) Model format identifier (default: 'OpenAI')
+ *     - modelVersion: (Optional) Version of the model (default: '1')
+ *     - retirementDate: (Optional) Retirement date in YYYY-MM-DD format
+ *     - apiVersion: (Optional) API version for OpenAI-type requests (default: '2024-02-15-preview')
+ *     - timeout: (Optional) Request timeout in seconds (default: 120)
+ *     - inferenceApiVersion: (Optional) API version for inference-type requests
  * - priority: (Optional) Priority for load balancing (1-5, default 1)
  * - weight: (Optional) Weight for load balancing (1-1000, default 1)
  */
@@ -123,6 +130,18 @@ param appInsightsLogSettings object = {
 @description('Enable an APIM backend that targets the AI Foundry embeddings endpoint')
 param enableEmbeddingsBackend bool = false
 
+@description('Enable the Unified AI Wildcard API (3rd API alongside Azure OpenAI and Universal LLM)')
+param enableUnifiedAiApi bool = true
+
+@description('Enable JWT authentication support across all APIs (creates JWT named values and security-handler fragment)')
+param enableJwtAuth bool = false
+
+@description('JWT Tenant ID (required when enableJwtAuth is true and not using Entra module)')
+param jwtTenantId string = ''
+
+@description('JWT App Registration Client ID (required when enableJwtAuth is true and not using Entra module)')
+param jwtAppRegistrationId string = ''
+
 @description('URL for the AI Foundry embeddings endpoint (should be /models/embeddings on the primary Foundry resource)')
 param embeddingsBackendUrl string = ''
 
@@ -131,7 +150,6 @@ param embeddingsBackendId string = 'foundry-embeddings'
 
 var apimPublicNetworkAccess = apimV2PublicNetworkAccess ? 'Enabled' : 'Disabled'
 
-var openAiApiBackendId = 'openai-backend'
 var openAiApiUamiNamedValue = 'uami-client-id'
 var openAiApiEntraNamedValue = 'entra-auth'
 var openAiApiClientNamedValue = 'client-id'
@@ -163,6 +181,12 @@ resource apimService 'Microsoft.ApiManagement/service@2024-05-01' = {
     capacity: (sku == 'Consumption') ? 0 : ((sku == 'Developer') ? 1 : skuCount)
   }
   identity: {
+    // Enable BOTH system-assigned and user-assigned managed identities.
+    // - User-assigned: pre-existing identity used by APIM policies (federated to backends, etc.)
+    // - System-assigned: required by APIM to resolve named-value Key Vault references.
+    //   When a named value is created with a `keyVault.secretIdentifier`, APIM uses its
+    //   primary identity (system-assigned by default) to fetch the secret. Without it,
+    //   provisioning a Key-Vault-backed named value fails with an authorization error.
     type: 'SystemAssigned, UserAssigned'
     userAssignedIdentities: {
       '${managedIdentity.id}': {}
@@ -386,7 +410,7 @@ module apiUniversalLLM './inference-api.bicep' = {
     apiManagementName: apimService.name
     inferenceAPIName: 'universal-llm-api'
     inferenceAPIPath: ''
-    inferenceAPIType: 'AzureAI'
+    inferenceAPIType: 'OpenAIV1'
     inferenceAPIDisplayName: 'Universal LLM API'
     inferenceAPIDescription: 'Universal LLM API to route requests to different LLM providers including Azure OpenAI, AI Foundry and 3rd party models.'
     allowSubscriptionKey: entraAuth ? false:true
@@ -426,6 +450,71 @@ module apimOpenaiApi './inference-api.bicep' = {
   ]
 }
 
+////// Unified AI Wildcard API /////////////
+
+module apiUnifiedAI './unified-ai-api.bicep' = if (enableUnifiedAiApi) {
+  name: 'unified-ai-api'
+  params: {
+    apiManagementName: apimService.name
+    enabled: enableUnifiedAiApi
+    apimLoggerId: apimAzMonitorLogger.id
+    azureMonitorLogSettings: azureMonitorLogSettings
+  }
+  dependsOn: [
+    policyFragments
+    llmBackends
+    llmBackendPools
+    llmPolicyFragments
+  ]
+}
+
+////// JWT Authentication Named Values /////////////
+// These named values support JWT authentication across all APIs (Azure OpenAI,
+// Universal LLM, and Unified AI). The security-handler fragment is included in all
+// API policies and references these named values via {{...}} syntax.
+// When enableJwtAuth is false, placeholders are used so deployment passes.
+// JWT enforcement is controlled per-product via the 'jwtRequired' context variable
+// set in each Access Contract's product policy.
+
+var jwtTenantIdValue = !empty(jwtTenantId) ? jwtTenantId : subscription().tenantId
+var jwtAppRegIdValue = !empty(jwtAppRegistrationId) ? jwtAppRegistrationId : 'not-configured'
+
+resource jwtTenantIdNamedValue 'Microsoft.ApiManagement/service/namedValues@2024-06-01-preview' = {
+  name: 'JWT-TenantId'
+  parent: apimService
+  properties: {
+    displayName: 'JWT-TenantId'
+    value: enableJwtAuth ? jwtTenantIdValue : 'not-configured'
+  }
+}
+
+resource jwtAppRegistrationIdNamedValue 'Microsoft.ApiManagement/service/namedValues@2024-06-01-preview' = {
+  name: 'JWT-AppRegistrationId'
+  parent: apimService
+  properties: {
+    displayName: 'JWT-AppRegistrationId'
+    value: enableJwtAuth ? jwtAppRegIdValue : 'not-configured'
+  }
+}
+
+resource jwtIssuerNamedValue 'Microsoft.ApiManagement/service/namedValues@2024-06-01-preview' = {
+  name: 'JWT-Issuer'
+  parent: apimService
+  properties: {
+    displayName: 'JWT-Issuer'
+    value: enableJwtAuth ? '${environment().authentication.loginEndpoint}${jwtTenantIdValue}/v2.0' : 'not-configured'
+  }
+}
+
+resource jwtOpenIdConfigUrlNamedValue 'Microsoft.ApiManagement/service/namedValues@2024-06-01-preview' = {
+  name: 'JWT-OpenIdConfigUrl'
+  parent: apimService
+  properties: {
+    displayName: 'JWT-OpenIdConfigUrl'
+    value: enableJwtAuth ? '${environment().authentication.loginEndpoint}${jwtTenantIdValue}/v2.0/.well-known/openid-configuration' : 'not-configured'
+  }
+}
+
 ////// AI Foundry Integration Requirements /////////////
 
 // Typed resource reference for the Universal LLM API (created by module above)
@@ -444,6 +533,16 @@ resource universalLlmDeploymentOperation 'Microsoft.ApiManagement/service/apis/o
 
 resource universalLlmDeploymentByNameOperation 'Microsoft.ApiManagement/service/apis/operations@2022-08-01' existing = {
   name: 'deployment-by-name'
+  parent: universalLLMApi
+}
+
+resource universalLlmListModelsOperation 'Microsoft.ApiManagement/service/apis/operations@2022-08-01' existing = {
+  name: 'listModels'
+  parent: universalLLMApi
+}
+
+resource universalLlmRetrieveModelOperation 'Microsoft.ApiManagement/service/apis/operations@2022-08-01' existing = {
+  name: 'retrieveModel'
   parent: universalLLMApi
 }
 
@@ -477,6 +576,24 @@ resource universalLlmDeploymentOperationPolicy 'Microsoft.ApiManagement/service/
 resource universalLlmDeploymentByNameOperationPolicy 'Microsoft.ApiManagement/service/apis/operations/policies@2022-08-01' = {
   name: 'policy'
   parent: universalLlmDeploymentByNameOperation
+  properties: {
+    format: 'rawxml'
+    value: loadTextContent('./policies/universal-llm-api-deployment-by-name-policy.xml')
+  }
+}
+
+resource universalLlmListModelsOperationPolicy 'Microsoft.ApiManagement/service/apis/operations/policies@2022-08-01' = {
+  name: 'policy'
+  parent: universalLlmListModelsOperation
+  properties: {
+    format: 'rawxml'
+    value: loadTextContent('./policies/universal-llm-api-deployments-policy.xml')
+  }
+}
+
+resource universalLlmRetrieveModelOperationPolicy 'Microsoft.ApiManagement/service/apis/operations/policies@2022-08-01' = {
+  name: 'policy'
+  parent: universalLlmRetrieveModelOperation
   properties: {
     format: 'rawxml'
     value: loadTextContent('./policies/universal-llm-api-deployment-by-name-policy.xml')
@@ -562,7 +679,7 @@ resource apiopenAiApiClientNamedValue 'Microsoft.ApiManagement/service/namedValu
   properties: {
     displayName: openAiApiClientNamedValue
     secret: true
-    value: clientAppId
+    value: !empty(clientAppId) ? clientAppId : 'not-configured'
   }
 }
 resource apiopenAiApiTenantNamedValue 'Microsoft.ApiManagement/service/namedValues@2022-08-01' = {
@@ -571,7 +688,7 @@ resource apiopenAiApiTenantNamedValue 'Microsoft.ApiManagement/service/namedValu
   properties: {
     displayName: openAiApiTenantNamedValue
     secret: true
-    value: tenantId
+    value: !empty(tenantId) ? tenantId : tenant().tenantId
   }
 }
 resource apimOpenaiApiAudienceNamedValue 'Microsoft.ApiManagement/service/namedValues@2022-08-01' =  {
@@ -580,7 +697,7 @@ resource apimOpenaiApiAudienceNamedValue 'Microsoft.ApiManagement/service/namedV
   properties: {
     displayName: openAiApiAudienceNamedValue
     secret: true
-    value: audience
+    value: !empty(audience) ? audience : 'https://cognitiveservices.azure.com/.default'
   }
 }
 
@@ -621,6 +738,7 @@ module policyFragments './policy-fragments.bicep' = {
     apimServiceName: apimService.name
     enablePIIAnonymization: enablePIIAnonymization
     enableAIModelInference: enableAIModelInference
+    enableUnifiedAiApi: enableUnifiedAiApi
   }
   dependsOn: [
     apiopenAiApiClientNamedValue
@@ -631,6 +749,73 @@ module policyFragments './policy-fragments.bicep' = {
     ehPIIUsageLogger
     piiServiceUrlNamedValue
     piiServiceKeyNamedValue
+    jwtTenantIdNamedValue
+    jwtAppRegistrationIdNamedValue
+    jwtIssuerNamedValue
+    jwtOpenIdConfigUrlNamedValue
+  ]
+}
+
+// ----------------------------------------------------------------------------
+// Application Insights logger credentials via Azure Key Vault
+// ----------------------------------------------------------------------------
+// Official guidance: https://learn.microsoft.com/azure/api-management/api-management-howto-app-insights
+// Rather than embedding the Application Insights connection string directly in
+// the APIM logger resource (which would surface it in deployment outputs and ARM
+// history), we store it as a Key Vault secret and expose it via an APIM
+// named value that references the secret. The named value is configured to use
+// the APIM user-assigned managed identity (which already has Key Vault Secrets
+// User on this vault — see `keyvault.bicep`) so the secret is resolved at
+// runtime without static credentials. APIM auto-refreshes the cached value on a
+// regular interval, so rotating the secret in Key Vault is picked up without
+// redeploying the logger.
+
+resource keyVault 'Microsoft.KeyVault/vaults@2023-07-01' existing = {
+  name: keyVaultName
+}
+
+// Persist the Application Insights connection string as a Key Vault secret.
+// Key Vault secret names cannot contain underscores; hyphenated names are used
+// to match the convention applied elsewhere in this accelerator (e.g.
+// `ENTRA-APP-CLIENT-SECRET`). The secret is unversioned so APIM picks up
+// rotated values automatically.
+var appInsightsConnectionStringSecretName = 'apim-appinsights-connection-string'
+
+resource appInsightsConnectionStringSecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = {
+  name: appInsightsConnectionStringSecretName
+  parent: keyVault
+  properties: {
+    value: applicationInsights.properties.ConnectionString
+    contentType: 'text/plain'
+  }
+}
+
+// APIM named value that resolves the secret from Key Vault. The token
+// `{{appinsights-logger-credentials}}` can then be used anywhere an APIM
+// resource accepts a named-value reference (logger credentials, policies, etc.).
+// `secretIdentifier` is intentionally version-less so rotation is automatic.
+var appInsightsLoggerCredentialsNamedValueName = 'appinsights-logger-credentials'
+
+resource appInsightsLoggerCredentialsNamedValue 'Microsoft.ApiManagement/service/namedValues@2024-06-01-preview' = {
+  name: appInsightsLoggerCredentialsNamedValueName
+  parent: apimService
+  properties: {
+    displayName: appInsightsLoggerCredentialsNamedValueName
+    secret: true
+    keyVault: {
+      // Use the APIM user-assigned managed identity for the Key Vault fetch.
+      // The user-assigned identity is granted `Key Vault Secrets User` by
+      // `keyvault.bicep` *before* APIM is provisioned, which guarantees that
+      // the secret is reachable the moment this named value is created and
+      // avoids the chicken-and-egg problem that the system-assigned identity
+      // would have (its role assignment is created in `keyvault-apim-system-rbac.bicep`,
+      // which runs *after* the APIM module).
+      identityClientId: managedIdentity.properties.clientId
+      secretIdentifier: '${keyVault.properties.vaultUri}secrets/${appInsightsConnectionStringSecretName}'
+    }
+  }
+  dependsOn: [
+    appInsightsConnectionStringSecret
   ]
 }
 
@@ -639,13 +824,21 @@ resource apimLogger 'Microsoft.ApiManagement/service/loggers@2024-05-01' = {
   parent: apimService
   properties: {
     credentials: {
-      connectionString: applicationInsights.properties.ConnectionString
+      // Reference the APIM named value (which itself is backed by a Key Vault secret)
+      // instead of embedding the Application Insights connection string directly in
+      // the logger configuration. APIM resolves the {{...}} token at runtime by
+      // fetching the secret from Key Vault using the user-assigned managed identity
+      // declared on the named value.
+      connectionString: '{{${appInsightsLoggerCredentialsNamedValueName}}}'
     }
-    description: 'Application Insights logger for API observability'
+    description: 'Application Insights logger for API observability (connection string resolved from Key Vault via named value)'
     isBuffered: false
     loggerType: 'applicationInsights'
     resourceId: applicationInsights.id
   }
+  dependsOn: [
+    appInsightsLoggerCredentialsNamedValue
+  ]
 }
 
 resource apimAzMonitorLogger 'Microsoft.ApiManagement/service/loggers@2024-10-01-preview' = {
@@ -805,337 +998,6 @@ module microsoftLearnMCPServer 'mcp-existing.bicep' = if (isMCPSampleDeployed) {
   ]
 }
 
-// ------------------
-//    MCP API Center Onboarding
-// ------------------
-
-var weatherMCPCustomProperties = {
-  Visibility: true
-  Categories: ['AI/ML', 'Developer Tools']
-  Vendor: 'Internal'
-  Type: 'AI Gateway'
-  Icon: 'https://cdn-icons-png.flaticon.com/512/1163/1163661.png'
-}
-module weatherMCPApiCenter './api-center-onboarding.bicep' = if (isMCPSampleDeployed && enableAPICenter) {
-  name: 'weather-mcp-api-center'
-  params: {
-    apicServiceName: apiCenterServiceName
-    apicWorkspaceName: apiCenterWorkspaceName
-    environmentName: apiCenterMCPEnvironment
-    apiName: 'weather-mcp'
-    apiDisplayName: 'Weather MCP Development'
-    apiDescription: 'MCP server for weather data operations for given location (Development)'
-    apiKind: 'mcp'
-    lifecycleStage: 'development'
-    versionName: '1-0-0'
-    versionDisplayName: '1.0.0'
-    definitionName: 'weather-mcp-definition'
-    definitionDisplayName: 'Weather MCP Definition'
-    definitionDescription: 'Weather MCP Definition for version 1.0.0'
-    deploymentName: 'weather-mcp-deployment'
-    deploymentDisplayName: 'Weather MCP Deployment'
-    deploymentDescription: 'Weather MCP Deployment for version 1.0.0 and environment Development'
-    gatewayUrl: apimService.properties.gatewayUrl
-    apiPath: 'weather-mcp'
-    customProperties: weatherMCPCustomProperties
-    documentationUrl: 'https://example.com/weather-mcp-docs'
-  }
-}
-
-var microsoftLearnMCPProperties = {
-  Visibility: true
-  Categories: ['Developer Tools', 'Productivity']
-  Vendor: 'Microsoft'
-  Type: 'Remote'
-  Icon: 'https://learn.microsoft.com/media/logos/logo-ms-social.png'
-}
-module microsoftLearnMCPApiCenter './api-center-onboarding.bicep' = if (isMCPSampleDeployed && enableAPICenter) {
-  name: 'ms-learn-mcp-api-center'
-  params: {
-    apicServiceName: apiCenterServiceName
-    apicWorkspaceName: apiCenterWorkspaceName
-    environmentName: apiCenterMCPEnvironment
-    apiName: 'ms-learn-mcp'
-    apiDisplayName: 'Microsoft Learn MCP'
-    apiDescription: 'Microsoft Learn MCP Server'
-    apiKind: 'mcp'
-    lifecycleStage: 'development'
-    versionName: '1-0-0'
-    versionDisplayName: '1.0.0'
-    definitionName: 'ms-learn-mcp-definition'
-    definitionDisplayName: 'Microsoft Learn MCP Definition'
-    definitionDescription: 'Microsoft Learn MCP Definition for version 1.0.0'
-    deploymentName: 'ms-learn-mcp-deployment'
-    deploymentDisplayName: 'Microsoft Learn MCP Deployment'
-    deploymentDescription: 'Microsoft Learn MCP Deployment for version 1.0.0 and environment development'
-    gatewayUrl: apimService.properties.gatewayUrl
-    apiPath: 'ms-learn-mcp'
-    customProperties: microsoftLearnMCPProperties
-    documentationUrl: 'https://learn.microsoft.com/mcp'
-  }
-}
-
-// ------------------
-//    API Center Onboarding - Regular APIs
-// ------------------
-
-var openAIApiCustomProperties = {
-  Visibility: true
-  Categories: ['AI/ML', 'OpenAI']
-  Vendor: 'Microsoft'
-  Type: 'AI Service'
-  Icon: 'https://cdn.openai.com/API/logo-assets/openai-logo.svg'
-}
-module openAIApiCenter './api-center-onboarding.bicep' = if (enableAPICenter) {
-  name: 'openai-api-center'
-  params: {
-    apicServiceName: apiCenterServiceName
-    apicWorkspaceName: apiCenterWorkspaceName
-    environmentName: apiCenterAPIEnvironment
-    apiName: 'azure-openai-service-api'
-    apiDisplayName: 'Azure OpenAI API'
-    apiDescription: 'Azure OpenAI API for accessing GPT models and other AI capabilities'
-    apiKind: 'REST'
-    lifecycleStage: 'production'
-    versionName: '1-0-0'
-    versionDisplayName: '1.0.0'
-    definitionName: 'azure-openai-service-api-definition'
-    definitionDisplayName: 'Azure OpenAI API Definition'
-    definitionDescription: 'Azure OpenAI API Definition for version 1.0.0'
-    deploymentName: 'azure-openai-service-api-deployment'
-    deploymentDisplayName: 'Azure OpenAI API Deployment'
-    deploymentDescription: 'Azure OpenAI API Deployment for version 1.0.0'
-    gatewayUrl: apimService.properties.gatewayUrl
-    apiPath: 'openai'
-    customProperties: openAIApiCustomProperties
-    documentationUrl: 'https://learn.microsoft.com/azure/ai-services/openai/'
-  }
-}
-
-var aiSearchCustomProperties = {
-  Visibility: true
-  Categories: ['AI/ML', 'Search']
-  Vendor: 'Microsoft'
-  Type: 'AI Service'
-  Icon: 'https://learn.microsoft.com/media/logos/logo-ms-social.png'
-}
-module aiSearchApiCenter './api-center-onboarding.bicep' = if (enableAzureAISearch && enableAPICenter) {
-  name: 'ai-search-api-center'
-  params: {
-    apicServiceName: apiCenterServiceName
-    apicWorkspaceName: apiCenterWorkspaceName
-    environmentName: apiCenterAPIEnvironment
-    apiName: 'azure-ai-search-index-api'
-    apiDisplayName: 'Azure AI Search Index API'
-    apiDescription: 'Azure AI Search Index Client APIs for search operations'
-    apiKind: 'REST'
-    lifecycleStage: 'production'
-    versionName: '1-0-0'
-    versionDisplayName: '1.0.0'
-    definitionName: 'azure-ai-search-index-api-definition'
-    definitionDisplayName: 'Azure AI Search Index API Definition'
-    definitionDescription: 'Azure AI Search Index API Definition for version 1.0.0'
-    deploymentName: 'azure-ai-search-index-api-deployment'
-    deploymentDisplayName: 'Azure AI Search Index API Deployment'
-    deploymentDescription: 'Azure AI Search Index API Deployment for version 1.0.0'
-    gatewayUrl: apimService.properties.gatewayUrl
-    apiPath: 'search'
-    customProperties: aiSearchCustomProperties
-    documentationUrl: 'https://learn.microsoft.com/azure/search/'
-  }
-}
-
-var aiModelInferenceCustomProperties = {
-  Visibility: true
-  Categories: ['AI/ML', 'Model Inference']
-  Vendor: 'Microsoft'
-  Type: 'AI Service'
-  Icon: 'https://learn.microsoft.com/media/logos/logo-ms-social.png'
-}
-module aiModelInferenceApiCenter './api-center-onboarding.bicep' = if (enableAIModelInference && enableAPICenter) {
-  name: 'ai-model-inference-api-center'
-  params: {
-    apicServiceName: apiCenterServiceName
-    apicWorkspaceName: apiCenterWorkspaceName
-    environmentName: apiCenterAPIEnvironment
-    apiName: 'ai-model-inference-api'
-    apiDisplayName: 'AI Model Inference API'
-    apiDescription: 'Access to AI inference models published through Azure AI Foundry'
-    apiKind: 'REST'
-    lifecycleStage: 'production'
-    versionName: '1-0-0'
-    versionDisplayName: '1.0.0'
-    definitionName: 'ai-model-inference-api-definition'
-    definitionDisplayName: 'AI Model Inference API Definition'
-    definitionDescription: 'AI Model Inference API Definition for version 1.0.0'
-    deploymentName: 'ai-model-inference-api-deployment'
-    deploymentDisplayName: 'AI Model Inference API Deployment'
-    deploymentDescription: 'AI Model Inference API Deployment for version 1.0.0'
-    gatewayUrl: apimService.properties.gatewayUrl
-    apiPath: 'models'
-    customProperties: aiModelInferenceCustomProperties
-    documentationUrl: 'https://learn.microsoft.com/en-us/rest/api/aifoundry/modelinference/'
-  }
-}
-
-var openAIRealtimeCustomProperties = {
-  Visibility: true
-  Categories: ['AI/ML', 'OpenAI', 'Real-time']
-  Vendor: 'Microsoft'
-  Type: 'AI Service'
-  Icon: 'https://cdn.openai.com/API/logo-assets/openai-logo.svg'
-}
-module openAIRealtimeApiCenter './api-center-onboarding.bicep' = if (enableOpenAIRealtime && enableAPICenter) {
-  name: 'openai-realtime-api-center'
-  params: {
-    apicServiceName: apiCenterServiceName
-    apicWorkspaceName: apiCenterWorkspaceName
-    environmentName: apiCenterAPIEnvironment
-    apiName: 'openai-realtime-ws-api'
-    apiDisplayName: 'Azure OpenAI Realtime API'
-    apiDescription: 'Access Azure OpenAI Realtime API for real-time voice and text conversion'
-    apiKind: 'websocket'
-    lifecycleStage: 'production'
-    versionName: '1-0-0'
-    versionDisplayName: '1.0.0'
-    definitionName: 'openai-realtime-ws-api-definition'
-    definitionDisplayName: 'Azure OpenAI Realtime API Definition'
-    definitionDescription: 'Azure OpenAI Realtime API Definition for version 1.0.0'
-    deploymentName: 'openai-realtime-ws-api-deployment'
-    deploymentDisplayName: 'Azure OpenAI Realtime API Deployment'
-    deploymentDescription: 'Azure OpenAI Realtime API Deployment for version 1.0.0'
-    gatewayUrl: apimService.properties.gatewayUrl
-    apiPath: 'openai/realtime'
-    customProperties: openAIRealtimeCustomProperties
-    documentationUrl: 'https://learn.microsoft.com/en-us/azure/ai-foundry/openai/realtime-audio-quickstart?tabs=keyless%2Cwindows'
-  }
-}
-
-var documentIntelligenceCustomProperties = {
-  Visibility: true
-  Categories: ['AI/ML', 'Document Processing']
-  Vendor: 'Microsoft'
-  Type: 'AI Service'
-  Icon: 'https://learn.microsoft.com/media/logos/logo-ms-social.png'
-}
-module documentIntelligenceLegacyApiCenter './api-center-onboarding.bicep' = if (enableDocumentIntelligence && enableAPICenter) {
-  name: 'doc-intel-legacy-api-center'
-  params: {
-    apicServiceName: apiCenterServiceName
-    apicWorkspaceName: apiCenterWorkspaceName
-    environmentName: apiCenterAPIEnvironment
-    apiName: 'document-intelligence-api-legacy'
-    apiDisplayName: 'Document Intelligence API (Legacy)'
-    apiDescription: 'Uses /formrecognizer path. Extracts content, layout, and structured data from documents'
-    apiKind: 'REST'
-    lifecycleStage: 'deprecated'
-    versionName: '1-0-0'
-    versionDisplayName: '1.0.0'
-    definitionName: 'document-intelligence-api-legacy-definition'
-    definitionDisplayName: 'Document Intelligence API (Legacy) Definition'
-    definitionDescription: 'Document Intelligence API (Legacy) Definition for version 1.0.0'
-    deploymentName: 'document-intelligence-api-legacy-deployment'
-    deploymentDisplayName: 'Document Intelligence API (Legacy) Deployment'
-    deploymentDescription: 'Document Intelligence API (Legacy) Deployment for version 1.0.0'
-    gatewayUrl: apimService.properties.gatewayUrl
-    apiPath: 'formrecognizer'
-    customProperties: documentIntelligenceCustomProperties
-    documentationUrl: 'https://learn.microsoft.com/azure/ai-services/document-intelligence/'
-  }
-}
-
-module documentIntelligenceApiCenter './api-center-onboarding.bicep' = if (enableDocumentIntelligence && enableAPICenter) {
-  name: 'doc-intel-api-center'
-  params: {
-    apicServiceName: apiCenterServiceName
-    apicWorkspaceName: apiCenterWorkspaceName
-    environmentName: apiCenterAPIEnvironment
-    apiName: 'document-intelligence-api'
-    apiDisplayName: 'Document Intelligence API'
-    apiDescription: 'Uses /documentintelligence path. Extracts content, layout, and structured data from documents'
-    apiKind: 'REST'
-    lifecycleStage: 'production'
-    versionName: '1-0-0'
-    versionDisplayName: '1.0.0'
-    definitionName: 'document-intelligence-api-definition'
-    definitionDisplayName: 'Document Intelligence API Definition'
-    definitionDescription: 'Document Intelligence API Definition for version 1.0.0'
-    deploymentName: 'document-intelligence-api-deployment'
-    deploymentDisplayName: 'Document Intelligence API Deployment'
-    deploymentDescription: 'Document Intelligence API Deployment for version 1.0.0'
-    gatewayUrl: apimService.properties.gatewayUrl
-    apiPath: 'documentintelligence'
-    customProperties: documentIntelligenceCustomProperties
-    documentationUrl: 'https://learn.microsoft.com/azure/ai-services/document-intelligence/'
-  }
-}
-
-var universalLLMCustomProperties = {
-  Visibility: true
-  Categories: ['AI/ML', 'LLM', 'Multi-Provider']
-  Vendor: 'Internal'
-  Type: 'AI Gateway'
-  Icon: 'https://learn.microsoft.com/media/logos/logo-ms-social.png'
-}
-module universalLLMApiCenter './api-center-onboarding.bicep' = if (enableAPICenter) {
-  name: 'universal-llm-api-center'
-  params: {
-    apicServiceName: apiCenterServiceName
-    apicWorkspaceName: apiCenterWorkspaceName
-    environmentName: apiCenterAPIEnvironment
-    apiName: 'universal-llm-api'
-    apiDisplayName: 'Universal LLM API'
-    apiDescription: 'Universal LLM API to route requests to different LLM providers including Azure OpenAI and AI Foundry'
-    apiKind: 'REST'
-    lifecycleStage: 'production'
-    versionName: '1-0-0'
-    versionDisplayName: '1.0.0'
-    definitionName: 'universal-llm-api-definition'
-    definitionDisplayName: 'Universal LLM API Definition'
-    definitionDescription: 'Universal LLM API Definition for version 1.0.0'
-    deploymentName: 'universal-llm-api-deployment'
-    deploymentDisplayName: 'Universal LLM API Deployment'
-    deploymentDescription: 'Universal LLM API Deployment for version 1.0.0'
-    gatewayUrl: apimService.properties.gatewayUrl
-    apiPath: 'llm'
-    customProperties: universalLLMCustomProperties
-    documentationUrl: 'https://github.com/mohamedsaif/ai-hub-gateway-solution-accelerator'
-  }
-}
-
-var weatherAPICustomProperties = {
-  Visibility: true
-  Categories: ['Sample', 'Weather']
-  Vendor: 'Internal'
-  Type: 'Sample API'
-  Icon: 'https://cdn-icons-png.flaticon.com/512/1163/1163661.png'
-}
-module weatherAPIApiCenter './api-center-onboarding.bicep' = if (isMCPSampleDeployed && enableAPICenter) {
-  name: 'weather-api-center'
-  params: {
-    apicServiceName: apiCenterServiceName
-    apicWorkspaceName: apiCenterWorkspaceName
-    environmentName: apiCenterAPIEnvironment
-    apiName: 'weather-api'
-    apiDisplayName: 'Weather API'
-    apiDescription: 'Weather API for getting dynamic weather information for a given location'
-    apiKind: 'REST'
-    lifecycleStage: 'development'
-    versionName: '1-0-0'
-    versionDisplayName: '1.0.0'
-    definitionName: 'weather-api-definition'
-    definitionDisplayName: 'Weather API Definition'
-    definitionDescription: 'Weather API Definition for version 1.0.0'
-    deploymentName: 'weather-api-deployment'
-    deploymentDisplayName: 'Weather API Deployment'
-    deploymentDescription: 'Weather API Deployment for version 1.0.0'
-    gatewayUrl: apimService.properties.gatewayUrl
-    apiPath: 'weather'
-    customProperties: weatherAPICustomProperties
-    documentationUrl: 'https://example.com/weather-api-docs'
-  }
-}
-
 @description('The name of the deployed API Management service.')
 output apimName string = apimService.name
 
@@ -1145,4 +1007,7 @@ output apimOpenaiApiPath string = apimOpenaiApi.outputs.path
 @description('Gateway URL for the deployed API Management resource.')
 output apimGatewayUrl string = apimService.properties.gatewayUrl
 
-output apimIdentityClientId string = apimService.identity.principalId
+output apimIdentityClientId string = managedIdentity.properties.principalId
+
+@description('Principal ID of the APIM system-assigned managed identity. Used to grant Key Vault access for named-value secret references.')
+output apimSystemAssignedPrincipalId string = apimService.identity.principalId

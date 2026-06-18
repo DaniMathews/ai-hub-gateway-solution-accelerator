@@ -142,12 +142,16 @@ Configure VNet, subnets, and network security:
 param vnetAddressPrefix = '10.170.0.0/24'
 param useExistingVnet = false
 param apimNetworkType = 'External'
+// AI Foundry network injection (enabled by default). When true, an additional
+// agent subnet delegated to Microsoft.App/environments is provisioned (greenfield)
+// or required (brownfield via agentSubnetName).
+param foundryNetworkInjectionEnabled = true
+param agentSubnetPrefix = '10.170.0.192/26'
 ```
 
 #### 4. **Feature Flags**
 Enable or disable specific capabilities:
 ```bicep
-param enableAIFoundry = true
 param enableAPICenter = true
 param enableAIGatewayPiiRedaction = true
 ```
@@ -161,7 +165,7 @@ param cosmosDbRUs = 400
 ```
 
 #### 6. **AI Foundry Configuration**
-Configure AI Foundry instances and model deployments:
+Configure AI Foundry instances and model deployments. The first entry in `aiFoundryInstances` is the **primary** Foundry — its endpoint also powers APIM content safety and PII processing policies. Additional entries are optional and provide extra regional Foundry resources for LLM model deployments:
 ```bicep
 param aiFoundryInstances = [...]
 param aiFoundryModelsConfig = [...]
@@ -219,6 +223,10 @@ param vnetName = 'my-existing-vnet'
 param apimSubnetName = 'snet-apim'
 param privateEndpointSubnetName = 'snet-pe'
 param functionAppSubnetName = 'snet-func'
+// Required when foundryNetworkInjectionEnabled = true (default).
+// Subnet must already be delegated to Microsoft.App/environments.
+param agentSubnetName = 'snet-agents'
+param foundryNetworkInjectionEnabled = true
 param dnsZoneRG = 'dns-rg'
 param dnsSubscriptionId = 'your-subscription-id'
 ```
@@ -239,7 +247,6 @@ param logAnalyticsName = 'mycompany-law-prod'
 ```bicep
 using './main.bicep'
 
-param enableAIFoundry = true
 param aiFoundryInstances = [
   {
     name: 'my-foundry-eastus'
@@ -262,6 +269,20 @@ param aiFoundryModelsConfig = [
 
 ### Scenario 4: Enable Microsoft Entra ID Authentication
 
+**Auto-provisioning (recommended):** Run the standalone Entra ID setup script after the first `azd up`, then re-deploy.
+
+```bicep
+using './main.bicep'
+
+param entraAuth = true
+// Values populated by: bicep/infra/entra-id-setup/setup.ps1
+param entraTenantId = ''
+param entraClientId = ''
+param entraAudience = ''
+```
+
+**Bring your own app registration:**
+
 ```bicep
 using './main.bicep'
 
@@ -270,6 +291,13 @@ param entraTenantId = 'your-tenant-id'
 param entraClientId = 'your-client-id'
 param entraAudience = 'api://your-api-id'
 ```
+
+When `entraAuth=true`:
+- APIM named values `JWT-TenantId`, `JWT-AppRegistrationId`, `JWT-Issuer`, `JWT-OpenIdConfigUrl` are configured
+- The `security-handler` policy fragment is deployed to support JWT validation across all APIs
+- Access contracts can enable JWT per-product via `jwtAuth.enabled: true`
+- The client secret is stored in Key Vault as `ENTRA-APP-CLIENT-SECRET`
+- Deploying user needs `Application.ReadWrite.All` permission for auto-provisioning
 
 ### Scenario 5: Configure AI Search Integration
 

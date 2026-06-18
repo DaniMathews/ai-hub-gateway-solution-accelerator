@@ -80,12 +80,6 @@ param usageProcessingLogicAppName string = ''
 @description('Name of the Storage Account. Leave blank to use default naming conventions.')
 param storageAccountName string = ''
 
-@description('Name of the Azure Language service. Leave blank to use default naming conventions.')
-param languageServiceName string = ''
-
-@description('Name of the Azure Content Safety service. Leave blank to use default naming conventions.')
-param aiContentSafetyName string = ''
-
 @description('Name of the API Center service. Leave blank to use default naming conventions.')
 param apicServiceName string = ''
 
@@ -121,6 +115,9 @@ param privateEndpointSubnetName string = ''
 @description('Subnet name for Function/Logic App in the VNet. Leave blank to use default naming conventions.')
 param functionAppSubnetName string = ''
 
+@description('Subnet name for AI Foundry agent (network injection) workloads in the VNet. Leave blank to use default naming conventions. Required when foundryNetworkInjectionEnabled is true and useExistingVnet is true.')
+param agentSubnetName string = ''
+
 
 // NSG & route table names
 @description('NSG name for API Management subnet. Leave blank to use default naming conventions.')
@@ -131,6 +128,9 @@ param privateEndpointNsgName string = ''
 
 @description('NSG name for Function App subnet. Leave blank to use default naming conventions.')
 param functionAppNsgName string = ''
+
+@description('NSG name for AI Foundry agent (network injection) subnet. Leave blank to use default naming conventions.')
+param agentSubnetNsgName string = ''
 
 @description('Route Table name for API Management subnet. Leave blank to use default naming conventions.')
 param apimRouteTableName string = ''
@@ -147,6 +147,12 @@ param privateEndpointSubnetPrefix string = '10.170.0.64/26'
 
 @description('Function App subnet address range.')
 param functionAppSubnetPrefix string = '10.170.0.128/26'
+
+@description('AI Foundry agent (network injection) subnet address range. Used only when a new VNet is provisioned and foundryNetworkInjectionEnabled is true. Subnet is delegated to Microsoft.App/environments.')
+param agentSubnetPrefix string = '10.170.0.192/26'
+
+@description('Enable AI Foundry network injection by attaching the Foundry account to the agent subnet (delegated to Microsoft.App/environments). Defaults to FALSE. IMPORTANT: virtual network injection is only supported as part of the full Foundry Standard Agent setup (bring-your-own Azure Storage + Azure AI Search + Azure Cosmos DB plus an explicit project capabilityHost). This accelerator provisions the Foundry account as a gateway backend using Microsoft-managed agent resources, which is incompatible with injection - enabling it causes the agent capability host (aml_aiagentservice) to fail with "Invalid vnet resource ID provided, or the virtual network could not be found". Only enable this once the full BYO Standard Agent setup has been added. When useExistingVnet is true the agentSubnetName must reference an existing subnet with the required Microsoft.App/environments delegation.')
+param foundryNetworkInjectionEnabled bool = false
 
 // DNS ZONE PARAMETERS - DNS zone configuration for private endpoints (for use with existing VNet)
 @description('Resource group containing the DNS zones (only used with existing VNet when existingPrivateDnsZones is not provided - LEGACY).')
@@ -192,12 +198,6 @@ param cosmosDbPrivateEndpointName string = ''
 @description('Event Hub private endpoint name. Leave blank to use default naming conventions.')
 param eventHubPrivateEndpointName string = ''
 
-@description('Name of the Azure Language service private endpoint. Leave blank to use default naming conventions.')
-param languageServicePrivateEndpointName string = ''
-
-@description('Name of the Azure Content Safety service private endpoint. Leave blank to use default naming conventions.')
-param aiContentSafetyPrivateEndpointName string = ''
-
 @description('API Management V2 private endpoint name. Leave blank to use default naming conventions.')
 param apimV2PrivateEndpointName string = ''
 
@@ -229,14 +229,6 @@ param cosmosDbPublicAccess string = 'Disabled'
 @description('Event Hub public network access. Needed to be Enabled when using APIM v2 SKUs during provisioning')
 @allowed([ 'Enabled', 'Disabled' ]) 
 param eventHubNetworkAccess string = 'Enabled'
-
-@description('Azure Language service external network access.')
-@allowed([ 'Enabled', 'Disabled' ])
-param languageServiceExternalNetworkAccess string = 'Disabled'
-
-@description('Azure Content Safety external network access.')
-@allowed([ 'Enabled', 'Disabled' ])
-param aiContentSafetyExternalNetworkAccess string = 'Disabled'
 
 @description('AI Foundry external network access.')
 @allowed([ 'Enabled', 'Disabled' ])
@@ -274,11 +266,8 @@ param enableAIGatewayPiiRedaction bool = true
 @description('Enable OpenAI realtime capabilities')
 param enableOpenAIRealtime bool = true
 
-@description('Enable AI Foundry integration.')
-param enableAIFoundry bool = true
-
 @description('Enable Microsoft Entra ID authentication for API Management.')
-param entraAuth bool = false
+param entraAuth bool = true
 
 @description('Enable API Center for API governance and discovery.')
 param enableAPICenter bool = true
@@ -327,12 +316,6 @@ param cosmosDbRUs int = 400
 
 @description('Logic Apps SKU capacity units.')
 param logicAppsSkuCapacityUnits int = 1
-
-@description('Azure Language service SKU name.')
-param languageServiceSkuName string = 'S'
-
-@description('Azure Content Safety service SKU name.')
-param aiContentSafetySkuName string = 'S0'
 
 @description('SKU for the API Center service.')
 @allowed(['Free', 'Standard'])
@@ -433,19 +416,21 @@ param aiSearchInstances array = [
   // }
 ]
 
-@description('AI Foundry instances configuration array.')
+@description('AI Foundry instances configuration array. The first element (index 0) is the **primary** Foundry resource. The primary Foundry powers the APIM AI Gateway content safety and PII processing capabilities (via the AI Services unified endpoint) AND can also host LLM model deployments. Add more entries to deploy additional Foundry resources in different regions for additional LLM capacity / regional routing. All entries can host LLM deployments declared in aiFoundryModelsConfig. Each entry may optionally set `networkInjectionEnabled: true|false` to opt the specific Foundry resource into (or out of) agent network injection (delegated to Microsoft.App/environments). Per-instance values only take effect when the global `foundryNetworkInjectionEnabled` flag is also true. Note: agent subnet is regional - only enable injection for instances in the same region as the VNet, and only when the full Foundry Standard Agent BYO setup (Storage + AI Search + Cosmos DB + capabilityHost) is in place.')
 param aiFoundryInstances array = [
   {
     name: !empty(aiFoundryResourceName) ? aiFoundryResourceName : ''
     location: location
     customSubDomainName: ''
     defaultProjectName: 'citadel-governance-project'
+    networkInjectionEnabled: false
   }
   {
     name: !empty(aiFoundryResourceName) ? aiFoundryResourceName : ''
     location: 'eastus2'
     customSubDomainName: ''
     defaultProjectName: 'citadel-governance-project'
+    networkInjectionEnabled: false
   }
 ]
 
@@ -459,6 +444,9 @@ param aiFoundryInstances array = [
   - sku: SKU name for the deployment, e.g., 'GlobalStandard', 'Standard'
   - capacity: Capacity/TPM quota
   - retirementDate: (Optional) Retirement date for the model in YYYY-MM-DD format
+  - apiVersion: (Optional) API version for OpenAI-type backend requests (default: '2024-02-15-preview')
+  - timeout: (Optional) Request timeout in seconds (default: 120)
+  - inferenceApiVersion: (Optional) API version for inference-type requests (e.g., '2024-05-01-preview' for non-OpenAI models)
   - aiserviceIndex: (Optional) Index of the AI Foundry instance to deploy to. Leave empty to deploy to all instances
   '''
 })
@@ -546,11 +534,18 @@ param primaryFoundryEmbeddingModelName string = 'text-embedding-3-large'
 @description('Microsoft Entra ID tenant ID for authentication (only used when entraAuth is true).')
 param entraTenantId string = ''
 
-@description('Microsoft Entra ID client ID for authentication (only used when entraAuth is true).')
+@description('Microsoft Entra ID client ID for authentication (only used when entraAuth is true). If empty and entraAuth is true, an app registration will be auto-provisioned.')
 param entraClientId string = ''
 
 @description('Audience value for Microsoft Entra ID authentication (only used when entraAuth is true).')
-param entraAudience string = '' 
+param entraAudience string = ''
+
+@secure()
+@description('Entra ID client secret for the app registration (only used when entraAuth is true with a pre-existing app registration, i.e., entraClientId is provided). When auto-provisioning, the secret is stored in Key Vault automatically by the entra-id module.')
+param entraClientSecret string = ''
+
+@description('Enable the Unified AI Wildcard API (3rd API alongside Azure OpenAI and Universal LLM)')
+param enableUnifiedAiApi bool = true
 
 // Load abbreviations from JSON file
 var abbrs = loadJsonContent('./abbreviations.json')
@@ -570,14 +565,17 @@ var transformedAiFoundryModelsConfig = [for model in aiFoundryModelsConfig: unio
 // Each model now includes full metadata: name, sku, capacity, modelFormat, modelVersion, retirementDate
 var modelsGroupedByInstance = [for (instance, i) in aiFoundryInstances: {
   instanceIndex: i
-  models: filter(map(aiFoundryModelsConfig, model => contains(model, 'aiserviceIndex') && model.aiserviceIndex == i ? {
+  models: filter(map(aiFoundryModelsConfig, model => contains(model, 'aiserviceIndex') && model.aiserviceIndex == i ? union({
     name: model.name
     sku: model.sku
     capacity: model.capacity
     modelFormat: model.publisher
     modelVersion: model.version
     retirementDate: model.?retirementDate ?? ''
-  } : {}), m => !empty(m))
+  }, !empty(model.?apiVersion) ? { apiVersion: model.apiVersion } : {},
+     !empty(model.?inferenceApiVersion) ? { inferenceApiVersion: model.inferenceApiVersion } : {},
+     contains(model, 'timeout') ? { timeout: model.timeout } : {}
+  ) : {}), m => !empty(m))
 }]
 
 /**
@@ -600,6 +598,9 @@ var modelsGroupedByInstance = [for (instance, i) in aiFoundryInstances: {
  *     - modelFormat: Model format identifier, e.g., 'OpenAI', 'DeepSeek', 'Microsoft' (default: 'OpenAI')
  *     - modelVersion: Version of the model (default: '1')
  *     - retirementDate: (Optional) Retirement date for the model in YYYY-MM-DD format
+ *     - apiVersion: (Optional) API version for OpenAI-type requests (default: '2024-02-15-preview')
+ *     - timeout: (Optional) Request timeout in seconds (default: 120)
+ *     - inferenceApiVersion: (Optional) API version for inference-type requests
  * - priority: (Optional) 1-5, default 1 (lower = higher priority)
  * - weight: (Optional) 1-1000, default 100 (higher = more traffic)
  * 
@@ -608,7 +609,7 @@ var modelsGroupedByInstance = [for (instance, i) in aiFoundryInstances: {
 
  var llmBackendConfig array = [
   // AI Foundry Instance 0 - Location: location (parameter)
-  // Models: gpt-4o-mini, gpt-4o, DeepSeek-R1, Phi-4
+  // Models: gpt-4o-mini, gpt-4o, gpt-4.1, DeepSeek-R1, Phi-4
   {
     backendId: 'aif-REPLACE-0'
     backendType: 'ai-foundry'
@@ -617,8 +618,9 @@ var modelsGroupedByInstance = [for (instance, i) in aiFoundryInstances: {
     supportedModels: [
       { name: 'gpt-4o-mini', sku: 'GlobalStandard', capacity: 100, modelFormat: 'OpenAI', modelVersion: '2024-07-18', retirementDate: '2026-09-30' }
       { name: 'gpt-4o', sku: 'GlobalStandard', capacity: 100, modelFormat: 'OpenAI', modelVersion: '2024-11-20', retirementDate: '2026-09-30' }
-      { name: 'DeepSeek-R1', sku: 'GlobalStandard', capacity: 1, modelFormat: 'DeepSeek', modelVersion: '1', retirementDate: '2099-12-30' }
-      { name: 'Phi-4', sku: 'GlobalStandard', capacity: 1, modelFormat: 'Microsoft', modelVersion: '3', retirementDate: '2099-12-30' }
+      { name: 'gpt-4.1', sku: 'GlobalStandard', capacity: 100, modelFormat: 'OpenAI', modelVersion: '2025-04-14', retirementDate: '2026-10-14', apiVersion: '2025-04-01-preview', timeout: 180 }
+      { name: 'DeepSeek-R1', sku: 'GlobalStandard', capacity: 1, modelFormat: 'DeepSeek', modelVersion: '1', retirementDate: '2099-12-30', inferenceApiVersion: '2024-05-01-preview' }
+      { name: 'Phi-4', sku: 'GlobalStandard', capacity: 1, modelFormat: 'Microsoft', modelVersion: '3', retirementDate: '2099-12-30', inferenceApiVersion: '2024-05-01-preview' }
     ]
     priority: 1
     weight: 100
@@ -632,7 +634,7 @@ var modelsGroupedByInstance = [for (instance, i) in aiFoundryInstances: {
     authScheme: 'managedIdentity'
     supportedModels: [
       { name: 'gpt-5', sku: 'GlobalStandard', capacity: 100, modelFormat: 'OpenAI', modelVersion: '2025-08-07', retirementDate: '2027-02-05' }
-      { name: 'DeepSeek-R1', sku: 'GlobalStandard', capacity: 1, modelFormat: 'DeepSeek', modelVersion: '1', retirementDate: '2099-12-30' }
+      { name: 'DeepSeek-R1', sku: 'GlobalStandard', capacity: 1, modelFormat: 'DeepSeek', modelVersion: '1', retirementDate: '2099-12-30', inferenceApiVersion: '2024-05-01-preview' }
     ]
     priority: 1
     weight: 100
@@ -653,7 +655,12 @@ var llmBackendConfig = [for (instance, i) in aiFoundryInstances: {
 }]
 
 var primaryFoundryName = !empty(aiFoundryInstances[0].name) ? aiFoundryInstances[0].name : 'aif-${resourceToken}-0'
-var primaryFoundryEmbeddingsBackendUrl = 'https://${primaryFoundryName}.cognitiveservices.azure.com/openai/deployments/${primaryFoundryEmbeddingModelName}/embeddings'
+// Primary Foundry endpoint - serves APIM AI Gateway as both:
+//   1. Backend URL for `content-safety-backend` (Content Safety API)
+//   2. Named-value `piiServiceUrl` (Language Service / PII detection API)
+// Both APIs are exposed on the AI Services account base endpoint.
+var primaryFoundryEndpoint = 'https://${primaryFoundryName}.cognitiveservices.azure.com/'
+var primaryFoundryEmbeddingsBackendUrl = '${primaryFoundryEndpoint}openai/deployments/${primaryFoundryEmbeddingModelName}/embeddings'
 
 var openAiPrivateDnsZoneName = 'privatelink.openai.azure.com'
 var keyVaultPrivateDnsZoneName = 'privatelink.vaultcore.azure.net'
@@ -749,6 +756,10 @@ module vnet './modules/networking/vnet.bicep' = if(!useExistingVnet) {
     privateEndpointNsgName: !empty(privateEndpointNsgName) ? privateEndpointNsgName : 'nsg-pe-${resourceToken}'
     functionAppSubnetName: !empty(functionAppSubnetName) ? functionAppSubnetName : 'snet-functionapp'
     functionAppNsgName: !empty(functionAppNsgName) ? functionAppNsgName : 'nsg-functionapp-${resourceToken}'
+    enableAgentSubnet: foundryNetworkInjectionEnabled
+    agentSubnetName: !empty(agentSubnetName) ? agentSubnetName : 'snet-agents'
+    agentSubnetNsgName: !empty(agentSubnetNsgName) ? agentSubnetNsgName : 'nsg-agents-${resourceToken}'
+    agentSubnetAddressPrefix: agentSubnetPrefix
     vnetAddressPrefix: vnetAddressPrefix
     apimSubnetAddressPrefix: apimSubnetPrefix
     isAPIMV2SKU: apimSku == 'StandardV2' || apimSku == 'PremiumV2'
@@ -772,6 +783,7 @@ module vnetExisting './modules/networking/vnet-existing.bicep' = if(useExistingV
     apimSubnetName: !empty(apimSubnetName) ? apimSubnetName : 'snet-apim'
     privateEndpointSubnetName: !empty(privateEndpointSubnetName) ? privateEndpointSubnetName : 'snet-private-endpoint'
     functionAppSubnetName: !empty(functionAppSubnetName) ? functionAppSubnetName : 'snet-functionapp'
+    agentSubnetName: foundryNetworkInjectionEnabled ? agentSubnetName : ''
     vnetRG: existingVnetRG
   }
   dependsOn: [
@@ -789,6 +801,8 @@ module apimManagedIdentity './modules/security/managed-identity-apim.bicep' = {
   }
 }
 
+// The usage managed identity is created early (no dependency on Cosmos DB) so its principal has
+// time to replicate in AAD before the Cosmos SQL role assignment runs (see usageCosmosSqlRole).
 module usageManagedIdentity './modules/security/managed-identity-usage.bicep' = {
   name: 'logicapp-usage-managed-identity'
   scope: resourceGroup
@@ -796,7 +810,6 @@ module usageManagedIdentity './modules/security/managed-identity-usage.bicep' = 
     name: !empty(usageLogicAppIdentityName) ? usageLogicAppIdentityName : '${abbrs.managedIdentityUserAssignedIdentities}logicapp-${resourceToken}'
     location: location
     tags: tags
-    cosmosDbAccountName: cosmosDb.outputs.cosmosDbAccountName
   }
 }
 
@@ -829,56 +842,6 @@ module monitoring './modules/monitor/monitoring.bicep' = {
   }
 }
 
-module contentSafety 'modules/ai/cognitiveservices.bicep' = {
-  name: 'ai-content-safety'
-  scope: resourceGroup
-  params: {
-    name: !empty(aiContentSafetyName) ? aiContentSafetyName : '${abbrs.cognitiveServicesAccounts}consafety-${resourceToken}'
-    location: location
-    tags: tags
-    kind: 'ContentSafety'
-    managedIdentityName: apimManagedIdentity.outputs.managedIdentityName
-    vNetName: useExistingVnet ? vnetExisting.outputs.vnetName : vnet.outputs.vnetName
-    vNetLocation: useExistingVnet ? vnetExisting.outputs.location : vnet.outputs.location
-    privateEndpointSubnetName: useExistingVnet ? vnetExisting.outputs.privateEndpointSubnetName : vnet.outputs.privateEndpointSubnetName
-    aiPrivateEndpointName: !empty(aiContentSafetyPrivateEndpointName) ? aiContentSafetyPrivateEndpointName : '${abbrs.cognitiveServicesAccounts}consafety-pe-${resourceToken}'
-    publicNetworkAccess: aiContentSafetyExternalNetworkAccess
-    openAiDnsZoneName: aiCogntiveServicesDnsZoneName
-    sku: {
-      name: aiContentSafetySkuName
-    }
-    vNetRG: useExistingVnet ? vnetExisting.outputs.vnetRG : vnet.outputs.vnetRG
-    dnsZoneRG: !useExistingVnet ? resourceGroup.name : dnsZoneRG
-    dnsSubscriptionId: !empty(dnsSubscriptionId) ? dnsSubscriptionId : subscription().subscriptionId
-    dnsZoneResourceId: existingCognitiveServicesDnsZoneId
-  }
-}
-
-module languageService 'modules/ai/cognitiveservices.bicep' = {
-  name: 'ai-language-service'
-  scope: resourceGroup
-  params: {
-    name: !empty(languageServiceName) ? languageServiceName : '${abbrs.cognitiveServicesAccounts}language-${resourceToken}'
-    location: location
-    tags: tags
-    kind: 'TextAnalytics'
-    managedIdentityName: apimManagedIdentity.outputs.managedIdentityName
-    vNetName: useExistingVnet ? vnetExisting.outputs.vnetName : vnet.outputs.vnetName
-    vNetLocation: useExistingVnet ? vnetExisting.outputs.location : vnet.outputs.location
-    privateEndpointSubnetName: useExistingVnet ? vnetExisting.outputs.privateEndpointSubnetName : vnet.outputs.privateEndpointSubnetName
-    aiPrivateEndpointName: !empty(languageServicePrivateEndpointName) ? languageServicePrivateEndpointName : '${abbrs.cognitiveServicesAccounts}language-pe-${resourceToken}'
-    publicNetworkAccess: languageServiceExternalNetworkAccess
-    openAiDnsZoneName: aiCogntiveServicesDnsZoneName
-    sku: {
-      name: languageServiceSkuName
-    }
-    vNetRG: useExistingVnet ? vnetExisting.outputs.vnetRG : vnet.outputs.vnetRG
-    dnsZoneRG: !useExistingVnet ? resourceGroup.name : dnsZoneRG
-    dnsSubscriptionId: !empty(dnsSubscriptionId) ? dnsSubscriptionId : subscription().subscriptionId
-    dnsZoneResourceId: existingCognitiveServicesDnsZoneId
-  }
-}
-
 module keyVault './modules/keyvault/keyvault.bicep' = {
   name: 'key-vault'
   scope: resourceGroup
@@ -900,7 +863,13 @@ module keyVault './modules/keyvault/keyvault.bicep' = {
   }
 }
 
-module foundry 'modules/foundry/foundry.bicep' = if(enableAIFoundry) {
+// AI Foundry deployment.
+// The first element of `aiFoundryInstances` is the **primary** Foundry resource. Its endpoint is
+// reused by APIM as the backend for content safety and as the named-value URL for PII / language
+// processing (both APIs are exposed on the unified AI Services endpoint of the account).
+// Additional entries in `aiFoundryInstances` simply provide more regional Foundry resources that
+// can host LLM model deployments declared in `aiFoundryModelsConfig`.
+module foundry 'modules/foundry/foundry.bicep' = {
   name: 'ai-foundry'
   scope: resourceGroup
   params: {
@@ -925,6 +894,8 @@ module foundry 'modules/foundry/foundry.bicep' = if(enableAIFoundry) {
     dnsZoneRG: !useExistingVnet ? resourceGroup.name : dnsZoneRG
     dnsSubscriptionId: !empty(dnsSubscriptionId) ? dnsSubscriptionId : subscription().subscriptionId
     dnsZoneResourceIds: aiFoundryDnsZoneResourceIds
+    networkInjectionEnabled: foundryNetworkInjectionEnabled
+    agentSubnetName: foundryNetworkInjectionEnabled ? (useExistingVnet ? vnetExisting.outputs.agentSubnetName : vnet.outputs.agentSubnetName) : ''
     // Key Vault connection parameters
     keyVaultId: keyVault.outputs.keyVaultId
     keyVaultUri: keyVault.outputs.keyVaultUri
@@ -974,6 +945,31 @@ module managedRedis './modules/redis/redis.bicep' = if (enableManagedRedis) {
   }
 }
 
+// ============================================================================
+// ENTRA ID CONFIGURATION
+// ============================================================================
+// Entra ID App Registration is created independently by the entra-id-setup script
+// (bicep/infra/entra-id-setup/setup.ps1) which stores values as azd environment
+// variables. These values flow through main.bicepparam -> parameters here.
+// For bring-your-own app registrations, set the values directly via azd env set.
+// See: bicep/infra/entra-id-setup/README.md
+
+var resolvedEntraTenantId = !empty(entraTenantId) ? entraTenantId : subscription().tenantId
+var resolvedEntraClientId = !empty(entraClientId) ? entraClientId : 'not-configured'
+var resolvedEntraAudience = !empty(entraAudience) ? entraAudience : (entraAuth ? 'api://${resolvedEntraClientId}' : 'https://cognitiveservices.azure.com/.default')
+
+// Store client secret in Key Vault when provided via parameter (for BYOA scenarios
+// where the secret isn't already in Key Vault from the entra-id-setup script)
+module entraClientSecretKv './modules/keyvault/keyvault-secret.bicep' = if (entraAuth && !empty(entraClientSecret)) {
+  name: 'entra-client-secret-kv'
+  scope: resourceGroup
+  params: {
+    keyVaultName: keyVault.outputs.keyVaultName
+    secretName: 'ENTRA-APP-CLIENT-SECRET'
+    secretValue: entraClientSecret
+  }
+}
+
 module apim './modules/apim/apim.bicep' = {
   name: 'apim'
   scope: resourceGroup
@@ -983,17 +979,18 @@ module apim './modules/apim/apim.bicep' = {
     tags: tags
     applicationInsightsName: monitoring.outputs.apimApplicationInsightsName
     managedIdentityName: apimManagedIdentity.outputs.managedIdentityName
+    keyVaultName: keyVault.outputs.keyVaultName
     entraAuth: entraAuth
-    clientAppId: entraAuth ? entraClientId : null 
-    tenantId: entraAuth ? entraTenantId : null
-    audience: entraAuth ? entraAudience : null
+    clientAppId: resolvedEntraClientId
+    tenantId: resolvedEntraTenantId
+    audience: resolvedEntraAudience
     eventHubName: eventHub.outputs.eventHubName
     eventHubEndpoint: eventHub.outputs.eventHubEndpoint
     eventHubPIIName: eventHub.outputs.eventHubPIIName
     eventHubPIIEndpoint: eventHub.outputs.eventHubEndpoint
     apimSubnetId: useExistingVnet ? vnetExisting.outputs.apimSubnetId : vnet.outputs.apimSubnetId
-    aiLanguageServiceUrl: languageService.outputs.aiServiceEndpoint
-    contentSafetyServiceUrl: contentSafety.outputs.aiServiceEndpoint
+    aiLanguageServiceUrl: primaryFoundryEndpoint
+    contentSafetyServiceUrl: primaryFoundryEndpoint
     apimNetworkType: apimNetworkType
     enablePIIAnonymization: enableAIGatewayPiiRedaction
     enableAIModelInference: enableAIModelInference
@@ -1005,8 +1002,8 @@ module apim './modules/apim/apim.bicep' = {
     enableRedisCache: enableManagedRedis
     redisCacheConnectionString: enableManagedRedis ? managedRedis.outputs.redisCacheConnectionString : ''
     redisCacheResourceId: enableManagedRedis ? managedRedis.outputs.redisResourceId : ''
-    enableEmbeddingsBackend: enableManagedRedis && enableAIFoundry
-    embeddingsBackendUrl: enableManagedRedis && enableAIFoundry ? primaryFoundryEmbeddingsBackendUrl : ''
+    enableEmbeddingsBackend: enableManagedRedis
+    embeddingsBackendUrl: enableManagedRedis ? primaryFoundryEmbeddingsBackendUrl : ''
     sku: apimSku
     skuCount: apimSkuUnits
     usePrivateEndpoint: apimV2UsePrivateEndpoint
@@ -1017,12 +1014,25 @@ module apim './modules/apim/apim.bicep' = {
     dnsSubscriptionId: !empty(dnsSubscriptionId) ? dnsSubscriptionId : subscription().subscriptionId
     dnsZoneResourceId: existingApimGatewayDnsZoneId
     isMCPSampleDeployed: true
-    enableAPICenter: enableAPICenter
-    apiCenterServiceName: enableAPICenter ? apiCenter.outputs.name : ''
-    apiCenterWorkspaceName: enableAPICenter ? apiCenter.outputs.defaultWorkspaceName : 'default'
     azureMonitorLogSettings: azureMonitorLogSettings
     appInsightsLogSettings: appInsightsLogSettings
+    enableUnifiedAiApi: enableUnifiedAiApi
+    enableJwtAuth: entraAuth
+    jwtTenantId: resolvedEntraTenantId
+    jwtAppRegistrationId: resolvedEntraClientId
+  }
+}
 
+// Grant the APIM SYSTEM-assigned managed identity (created by the apim module) read access
+// to Key Vault secrets and certificates. APIM uses its system-assigned identity to resolve
+// named-value Key Vault references, so this is required before any Key-Vault-backed named
+// value can be provisioned.
+module keyVaultApimSystemRbac './modules/keyvault/keyvault-apim-system-rbac.bicep' = {
+  name: 'kv-apim-system-rbac'
+  scope: resourceGroup
+  params: {
+    keyVaultName: keyVault.outputs.keyVaultName
+    apimSystemAssignedPrincipalId: apim.outputs.apimSystemAssignedPrincipalId
   }
 }
 
@@ -1043,6 +1053,19 @@ module cosmosDb './modules/cosmos-db/cosmos-db.bicep' = {
     dnsZoneResourceId: existingCosmosDbDnsZoneId
     throughput: cosmosDbRUs
     publicAccess: cosmosDbPublicAccess
+  }
+}
+
+// Grant the usage managed identity the Cosmos DB native data-contributor role. This is split into
+// its own deployment (after both Cosmos DB and the managed identity exist) so the identity's
+// principal has replicated in AAD, avoiding the transient "principal ID was not found in the AAD
+// tenant" error that Cosmos DB raises when validating a freshly created principal.
+module usageCosmosSqlRole './modules/cosmos-db/cosmos-sql-role-assignment.bicep' = {
+  name: 'logicapp-usage-cosmos-sql-role'
+  scope: resourceGroup
+  params: {
+    cosmosDbAccountName: cosmosDb.outputs.cosmosDbAccountName
+    principalId: usageManagedIdentity.outputs.managedIdentityPrincipalId
   }
 }
 
@@ -1117,8 +1140,27 @@ module apiCenter './modules/apic/apic.bicep' = if(enableAPICenter) {
   }
 }
 
+module apiCenterOnboarding './modules/apim/api-center-onboarding-all.bicep' = if(enableAPICenter) {
+  name: 'api-center-onboarding'
+  scope: resourceGroup
+  params: {
+    apiCenterServiceName: enableAPICenter ? apiCenter.outputs.name : ''
+    apiCenterWorkspaceName: enableAPICenter ? apiCenter.outputs.defaultWorkspaceName : 'default'
+    apimGatewayUrl: apim.outputs.apimGatewayUrl
+    isMCPSampleDeployed: true
+    enableAzureAISearch: enableAzureAISearch
+    enableAIModelInference: enableAIModelInference
+    enableOpenAIRealtime: enableOpenAIRealtime
+    enableDocumentIntelligence: enableDocumentIntelligence
+  }
+  dependsOn: [
+    apim
+    apiCenter
+  ]
+}
+
 // Grant AI Foundry resources access to Key Vault (deployed after both Key Vault and Foundry)
-module keyVaultFoundryRbac './modules/keyvault/keyvault-rbac.bicep' = if(enableAIFoundry) {
+module keyVaultFoundryRbac './modules/keyvault/keyvault-rbac.bicep' = {
   name: 'key-vault-foundry-rbac'
   scope: resourceGroup
   params: {
@@ -1134,7 +1176,14 @@ module keyVaultFoundryRbac './modules/keyvault/keyvault-rbac.bicep' = if(enableA
 output APIM_NAME string = apim.outputs.apimName
 output APIM_AOI_PATH string = apim.outputs.apimOpenaiApiPath
 output APIM_GATEWAY_URL string = apim.outputs.apimGatewayUrl
-output AI_FOUNDRY_SERVICES array = enableAIFoundry ? foundry!.outputs.extendedAIServicesConfig : []
+output AZURE_RESOURCE_GROUP string = resourceGroup.name
+output AI_FOUNDRY_SERVICES array = foundry.outputs.extendedAIServicesConfig
 output LLM_BACKEND_CONFIG array = llmBackendConfig
 output KEY_VAULT_NAME string = keyVault.outputs.keyVaultName
 output KEY_VAULT_URI string = keyVault.outputs.keyVaultUri
+output ENTRA_AUTH_ENABLED bool = entraAuth
+output ENTRA_CLIENT_ID string = resolvedEntraClientId
+output ENTRA_TENANT_ID string = resolvedEntraTenantId
+output ENTRA_AUDIENCE string = resolvedEntraAudience
+output COSMOS_DB_ACCOUNT_NAME string = cosmosDb.outputs.cosmosDbAccountName
+output EVENT_HUB_NAME string = eventHub.outputs.eventHubName

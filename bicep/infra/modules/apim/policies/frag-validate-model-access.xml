@@ -10,7 +10,7 @@
         Behavior:
         - Non-LLM requests (e.g., GET operations like listing models) are always allowed
         - If allowedModels is empty, all models are allowed
-        - If requestedModel is not in allowedModels, returns 401 Unauthorized
+        - If requestedModel is not in allowedModels, returns 403 Forbidden
         
         Usage:
         1. Set allowedModels variable before including this fragment
@@ -40,7 +40,7 @@
             return !allowedModels.Any(m => m == requestedModel);
         }">
             <return-response>
-                <set-status code="401" reason="Unauthorized model access" />
+                <set-status code="403" reason="Forbidden" />
                 <set-header name="Content-Type" exists-action="override">
                     <value>application/json</value>
                 </set-header>
