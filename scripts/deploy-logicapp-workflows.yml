@@ -1,0 +1,175 @@
+################################################################################
+# Azure DevOps Pipeline — Deploy Logic App Standard Workflows
+#
+# Deploys the usage-ingestion workflows from src/usage-ingestion-logicapp
+# to an already-provisioned Logic App Standard instance.
+#
+# Required pipeline variables (set in Library or variable group):
+#   AZURE_SERVICE_CONNECTION  - Azure DevOps service connection name
+#   AZURE_RESOURCE_GROUP      - Resource group containing the Logic App
+#   LOGIC_APP_NAME            - Name of the Logic App Standard resource
+#
+# Optional:
+#   Set these per-environment using variable groups or pipeline environments.
+################################################################################
+
+trigger:
+  branches:
+    include:
+      - main
+  paths:
+    include:
+      - src/usage-ingestion-logicapp/**
+
+pr:
+  branches:
+    include:
+      - main
+  paths:
+    include:
+      - src/usage-ingestion-logicapp/**
+
+parameters:
+  - name: environment
+    displayName: Target Environment
+    type: string
+    default: dev
+    values:
+      - dev
+      - staging
+      - prod
+
+variables:
+  - name: logicAppSourcePath
+    value: $(Build.SourcesDirectory)/src/usage-ingestion-logicapp
+  - name: artifactName
+    value: logicapp-workflows
+  - name: zipFileName
+    value: logicapp-$(Build.BuildId).zip
+
+stages:
+
+  ############################################################################
+  # Stage 1: Build — package the workflow artifacts
+  ############################################################################
+  - stage: Build
+    displayName: Build & Package Workflows
+    jobs:
+      - job: PackageWorkflows
+        displayName: Package Logic App Workflows
+        pool:
+          vmImage: ubuntu-latest
+
+        steps:
+          - checkout: self
+            displayName: Checkout repository
+
+          # Validate that the required workflow files exist
+          - script: |
+              echo "Validating workflow structure..."
+              required_dirs=(
+                "ai-usage-ingestion"
+                "ai-usage-streaming-ingestion"
+                "llm-usage-ingestion"
+                "pii-usage-ingestion"
+              )
+              for dir in "${required_dirs[@]}"; do
+                if [ ! -f "$(logicAppSourcePath)/$dir/workflow.json" ]; then
+                  echo "##vso[task.logissue type=error]Missing: src/usage-ingestion-logicapp/$dir/workflow.json"
+                  exit 1
+                fi
+                echo "OK: $dir/workflow.json"
+              done
+              echo "All workflow files present."
+            displayName: Validate Workflow Files
+
+          # Create the deployment zip from the logic app source folder
+          - task: ArchiveFiles@2
+            displayName: Zip Logic App Source
+            inputs:
+              rootFolderOrFile: $(logicAppSourcePath)
+              includeRootFolder: false
+              archiveType: zip
+              archiveFile: $(Build.ArtifactStagingDirectory)/$(zipFileName)
+              replaceExistingArchive: true
+
+          # Publish the zip as a pipeline artifact for the deploy stage
+          - task: PublishPipelineArtifact@1
+            displayName: Publish Workflow Artifact
+            inputs:
+              targetPath: $(Build.ArtifactStagingDirectory)/$(zipFileName)
+              artifact: $(artifactName)
+              publishLocation: pipeline
+
+  ############################################################################
+  # Stage 2: Deploy — zip-deploy to Logic App Standard
+  ############################################################################
+  - stage: Deploy
+    displayName: Deploy to Logic App (${{ parameters.environment }})
+    dependsOn: Build
+    condition: succeeded()
+
+    jobs:
+      - deployment: DeployLogicApp
+        displayName: Deploy Logic App Workflows
+        pool:
+          vmImage: ubuntu-latest
+
+        # Change this to match your Azure DevOps environment name if using
+        # approval gates, otherwise remove the 'environment' key.
+        environment: ${{ parameters.environment }}
+
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+
+                # Download the artifact produced in the Build stage
+                - task: DownloadPipelineArtifact@2
+                  displayName: Download Workflow Artifact
+                  inputs:
+                    artifactName: $(artifactName)
+                    targetPath: $(Pipeline.Workspace)/$(artifactName)
+
+                # Deploy using zip deploy via Azure CLI
+                # Logic App Standard runs on the Functions runtime, so
+                # az logicapp deployment source config-zip is used.
+                - task: AzureCLI@2
+                  displayName: Zip-Deploy Workflows to Logic App
+                  inputs:
+                    azureSubscription: $(AZURE_SERVICE_CONNECTION)
+                    scriptType: bash
+                    scriptLocation: inlineScript
+                    inlineScript: |
+                      set -e
+
+                      ZIP_PATH="$(Pipeline.Workspace)/$(artifactName)/$(zipFileName)"
+
+                      echo "Deploying to Logic App: $(LOGIC_APP_NAME)"
+                      echo "Resource Group:         $(AZURE_RESOURCE_GROUP)"
+                      echo "Zip file:               $ZIP_PATH"
+
+                      az logicapp deployment source config-zip \
+                        --resource-group "$(AZURE_RESOURCE_GROUP)" \
+                        --name "$(LOGIC_APP_NAME)" \
+                        --src "$ZIP_PATH"
+
+                      echo "Deployment complete."
+
+                # Verify the workflows are visible after deployment
+                - task: AzureCLI@2
+                  displayName: Verify Workflows Deployed
+                  inputs:
+                    azureSubscription: $(AZURE_SERVICE_CONNECTION)
+                    scriptType: bash
+                    scriptLocation: inlineScript
+                    inlineScript: |
+                      set -e
+
+                      echo "Listing deployed workflows..."
+                      az logicapp workflow list \
+                        --resource-group "$(AZURE_RESOURCE_GROUP)" \
+                        --name "$(LOGIC_APP_NAME)" \
+                        --output table
+
+                      echo "Verification complete."
